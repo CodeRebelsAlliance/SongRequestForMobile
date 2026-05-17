@@ -27,6 +27,7 @@ public static class MauiProgram
             AllowAutoRedirect = false
         }));
         builder.Services.AddSingleton<ServerApiClient>();
+        builder.Services.AddSingleton<IRequestSyncService, RequestSyncService>();
         builder.Services.AddTransient<YouTubeAuthPage>();
 #if ANDROID
         builder.Services.AddSingleton<IYouTubeCookieProvider, AndroidYouTubeCookieProvider>();

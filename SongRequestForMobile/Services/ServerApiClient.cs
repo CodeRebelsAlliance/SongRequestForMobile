@@ -94,6 +94,24 @@ public sealed class ServerApiClient
                ?? new SendInResponse { Status = "success", Message = "Song submitted." };
     }
 
+    public async Task<IReadOnlyList<ServerRequestRow>> GetSentInSongsAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(HttpMethod.Post, "/fetch?method=get-database", null, cancellationToken).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new UnauthorizedAccessException("Unauthorized");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(ExtractErrorMessage(body, response.StatusCode));
+        }
+
+        return ParseSentInSongs(body);
+    }
+
     public async Task<T?> GetJsonAsync<T>(string path, CancellationToken cancellationToken = default)
     {
         using var response = await SendAsync(HttpMethod.Get, path, null, cancellationToken).ConfigureAwait(false);
@@ -105,6 +123,60 @@ public sealed class ServerApiClient
     {
         using var content = JsonContent.Create(payload);
         return await SendAsync(HttpMethod.Post, path, content, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static IReadOnlyList<ServerRequestRow> ParseSentInSongs(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return Array.Empty<ServerRequestRow>();
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return Array.Empty<ServerRequestRow>();
+            }
+
+            var rows = new List<ServerRequestRow>();
+            foreach (var element in doc.RootElement.EnumerateArray())
+            {
+                if (element.ValueKind == JsonValueKind.Array)
+                {
+                    var values = element.EnumerateArray().ToArray();
+                    if (values.Length >= 4)
+                    {
+                        rows.Add(new ServerRequestRow(
+                            values[0].GetString() ?? string.Empty,
+                            values[1].GetString() ?? string.Empty,
+                            values[2].GetBoolean(),
+                            values[3].GetString() ?? string.Empty));
+                    }
+                    continue;
+                }
+
+                if (element.ValueKind == JsonValueKind.Object)
+                {
+                    var videoId = element.TryGetProperty("ytid", out var idProp) ? idProp.GetString() : string.Empty;
+                    var message = element.TryGetProperty("message", out var messageProp) ? messageProp.GetString() : string.Empty;
+                    var approved = element.TryGetProperty("is_approved", out var approvedProp) && approvedProp.ValueKind == JsonValueKind.True;
+                    var time = element.TryGetProperty("time", out var timeProp) ? timeProp.GetString() : string.Empty;
+
+                    if (!string.IsNullOrWhiteSpace(videoId))
+                    {
+                        rows.Add(new ServerRequestRow(videoId!, message ?? string.Empty, approved, time ?? string.Empty));
+                    }
+                }
+            }
+
+            return rows;
+        }
+        catch
+        {
+            return Array.Empty<ServerRequestRow>();
+        }
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content, CancellationToken cancellationToken)
