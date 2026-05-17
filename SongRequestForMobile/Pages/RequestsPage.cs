@@ -8,6 +8,8 @@ namespace SongRequestForMobile.Pages;
 public sealed class RequestsPage : ContentPage
 {
     private readonly IRequestSyncService _requestSyncService;
+    private readonly IPlayerQueueService _queueService;
+    private readonly IQueueItemFactory _queueItemFactory;
     private readonly ObservableCollection<RequestDisplayItem> _items = new();
     private readonly CollectionView _collectionView;
     private readonly Border _badgeBorder;
@@ -16,9 +18,11 @@ public sealed class RequestsPage : ContentPage
     private readonly IDispatcherTimer _timer;
     private bool _isActive;
 
-    public RequestsPage(IRequestSyncService requestSyncService)
+    public RequestsPage(IRequestSyncService requestSyncService, IPlayerQueueService queueService, IQueueItemFactory queueItemFactory)
     {
         _requestSyncService = requestSyncService;
+        _queueService = queueService;
+        _queueItemFactory = queueItemFactory;
         _requestSyncService.Updated += OnServiceUpdated;
 
         _badgeLabel = new Label
@@ -160,7 +164,7 @@ public sealed class RequestsPage : ContentPage
         MainThread.BeginInvokeOnMainThread(UpdateUiFromService);
     }
 
-    private static DataTemplate CreateTemplate()
+    private DataTemplate CreateTemplate()
     {
         return new DataTemplate(() =>
         {
@@ -218,11 +222,10 @@ public sealed class RequestsPage : ContentPage
                 Children = { title, channel, message, state, meta }
             };
 
-            return new Border
+            var border = new Border
             {
                 StrokeShape = new RoundRectangle { CornerRadius = 16 },
                 StrokeThickness = 1,
-                Stroke = Colors.LightGray,
                 Padding = 12,
                 Margin = new Thickness(0, 0, 0, 10),
                 Content = new Grid
@@ -240,7 +243,61 @@ public sealed class RequestsPage : ContentPage
                     }
                 }
             };
+
+            border.BindingContextChanged += (_, _) =>
+            {
+                if (border.BindingContext is RequestDisplayItem item)
+                {
+                    var accent = AccentFrom(item.Thumbnail ?? item.VideoId);
+                    border.Stroke = accent;
+                    border.BackgroundColor = Colors.White;
+                }
+            };
+
+            var tap = new TapGestureRecognizer
+            {
+                Command = new Command<RequestDisplayItem>(item => _ = ShowActionMenuAsync(item))
+            };
+            tap.SetBinding(TapGestureRecognizer.CommandParameterProperty, new Binding("."));
+            border.GestureRecognizers.Add(tap);
+            return border;
         });
+    }
+
+    private async Task ShowActionMenuAsync(RequestDisplayItem item)
+    {
+        var choice = await DisplayActionSheet($"Queue '{item.Title}'", "Cancel", null, "Queue", "Play next", "Play now (replace queue)");
+        var queueItem = _queueItemFactory.FromRequest(item);
+
+        switch (choice)
+        {
+            case "Queue":
+                _queueService.Enqueue(queueItem);
+                break;
+            case "Play next":
+                await _queueService.PlayNextAsync(queueItem);
+                break;
+            case "Play now (replace queue)":
+                await _queueService.PlayNowReplaceQueueAsync(queueItem);
+                break;
+        }
+    }
+
+    private static Color AccentFrom(string? seed)
+    {
+        if (string.IsNullOrWhiteSpace(seed))
+        {
+            return Colors.SteelBlue;
+        }
+
+        unchecked
+        {
+            var hash = seed.GetHashCode();
+            var r = (byte)(96 + (hash & 0x3F));
+            var g = (byte)(96 + ((hash >> 8) & 0x3F));
+            var b = (byte)(96 + ((hash >> 16) & 0x3F));
+            return Color.FromRgb(r, g, b);
+        }
     }
 
     private sealed class DownloadStateConverter : IValueConverter
