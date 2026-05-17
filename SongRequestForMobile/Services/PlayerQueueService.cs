@@ -253,22 +253,33 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
             return;
         }
 
-        if (_audioPlayer.IsPlaying)
-        {
-            Updated?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
         if (_manualPause)
         {
             Updated?.Invoke(this, EventArgs.Empty);
             return;
         }
 
-        if (Duration > TimeSpan.Zero && CurrentPosition >= Duration - TimeSpan.FromMilliseconds(800))
+        if (_audioPlayer.IsPlaying)
+        {
+            if (Duration > TimeSpan.Zero && CurrentPosition >= Duration - TimeSpan.FromMilliseconds(400))
+            {
+                await SkipNextAsync().ConfigureAwait(false);
+                return;
+            }
+
+            Updated?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        if (Queue.Count > 0)
         {
             await SkipNextAsync().ConfigureAwait(false);
+            return;
         }
+
+        StopInternal();
+        CurrentItem = null;
+        Updated?.Invoke(this, EventArgs.Empty);
     }
 
     public void Dispose()

@@ -141,84 +141,87 @@ public partial class MainPage : ContentPage
 
     private View BuildContent()
     {
-        return new Grid
+        _searchResultsCollectionView.HeightRequest = 340;
+        _searchResultsCollectionView.VerticalOptions = LayoutOptions.Fill;
+
+        return new ScrollView
         {
-            RowDefinitions = new RowDefinitionCollection
+            Content = new VerticalStackLayout
             {
-                new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Star },
-                new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Auto }
-            },
-            Padding = 16,
-            RowSpacing = 12,
-            Children =
-            {
-                new Label
+                Padding = 16,
+                Spacing = 12,
+                Children =
                 {
-                    Text = "Add a song",
-                    FontSize = 24,
-                    FontAttributes = FontAttributes.Bold
-                },
-                new Frame
-                {
-                    Padding = 12,
-                    Content = new VerticalStackLayout
+                    new Label
                     {
-                        Spacing = 10,
-                        Children =
+                        Text = "Add a song",
+                        FontSize = 24,
+                        FontAttributes = FontAttributes.Bold
+                    },
+                    new Frame
+                    {
+                        Padding = 12,
+                        Content = new VerticalStackLayout
                         {
-                            new Label { Text = "Search music", FontAttributes = FontAttributes.Bold },
-                            _searchQueryEntry,
-                            new Button { Text = "Search", Command = new Command(async () => await SearchAsync()) },
-                            _searchStatusLabel
+                            Spacing = 10,
+                            Children =
+                            {
+                                new Label { Text = "Search music", FontAttributes = FontAttributes.Bold },
+                                _searchQueryEntry,
+                                new Button { Text = "Search", Command = new Command(async () => await SearchAsync()) },
+                                _searchStatusLabel
+                            }
+                        }
+                    },
+                    new Frame
+                    {
+                        Padding = 12,
+                        Content = new VerticalStackLayout
+                        {
+                            Spacing = 10,
+                            Children =
+                            {
+                                new Label { Text = "Selected song", FontAttributes = FontAttributes.Bold },
+                                _youtubeLinkEntry,
+                                _selectedSongLabel
+                            }
+                        }
+                    },
+                    new Label
+                    {
+                        Text = "Search results",
+                        FontSize = 18,
+                        FontAttributes = FontAttributes.Bold
+                    },
+                    _searchResultsCollectionView,
+                    new Frame
+                    {
+                        Padding = 12,
+                        Content = new VerticalStackLayout
+                        {
+                            Spacing = 10,
+                            Children =
+                            {
+                                new Label { Text = "Message to server", FontAttributes = FontAttributes.Bold },
+                                _messageEntry
+                            }
+                        }
+                    },
+                    new Frame
+                    {
+                        Padding = 12,
+                        Content = new VerticalStackLayout
+                        {
+                            Spacing = 10,
+                            Children =
+                            {
+                                new Label { Text = "Submit", FontAttributes = FontAttributes.Bold },
+                                new Button { Text = "Send song request", Command = new Command(async () => await OnSendClicked()) },
+                                _statusLabel
+                            }
                         }
                     }
-                }.WithGridRow(1),
-                new Frame
-                {
-                    Padding = 12,
-                    Content = new VerticalStackLayout
-                    {
-                        Spacing = 10,
-                        Children =
-                        {
-                            new Label { Text = "Selected song", FontAttributes = FontAttributes.Bold },
-                            _youtubeLinkEntry,
-                            _selectedSongLabel
-                        }
-                    }
-                }.WithGridRow(2),
-                _searchResultsCollectionView.WithGridRow(3),
-                new Frame
-                {
-                    Padding = 12,
-                    Content = new VerticalStackLayout
-                    {
-                        Spacing = 10,
-                        Children =
-                        {
-                            new Label { Text = "Message to server", FontAttributes = FontAttributes.Bold },
-                            _messageEntry
-                        }
-                    }
-                }.WithGridRow(4),
-                new Frame
-                {
-                    Padding = 12,
-                    Content = new VerticalStackLayout
-                    {
-                        Spacing = 10,
-                        Children =
-                        {
-                            new Label { Text = "Submit", FontAttributes = FontAttributes.Bold },
-                            new Button { Text = "Send song request", Command = new Command(async () => await OnSendClicked()) },
-                            _statusLabel
-                        }
-                    }
-                }.WithGridRow(5)
+                }
             }
         };
     }

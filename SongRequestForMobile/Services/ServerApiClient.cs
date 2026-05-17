@@ -112,6 +112,18 @@ public sealed class ServerApiClient
         return ParseSentInSongs(body);
     }
 
+    public Task<string> ApproveRequestAsync(string videoId, CancellationToken cancellationToken = default)
+        => SendRequestActionAsync("approve", videoId, cancellationToken);
+
+    public Task<string> UnapproveRequestAsync(string videoId, CancellationToken cancellationToken = default)
+        => SendRequestActionAsync("unapprove", videoId, cancellationToken);
+
+    public Task<string> BlacklistRequestAsync(string videoId, CancellationToken cancellationToken = default)
+        => SendRequestActionAsync("blacklist", videoId, cancellationToken);
+
+    public Task<string> DeleteRequestAsync(string videoId, CancellationToken cancellationToken = default)
+        => SendRequestActionAsync("delete", videoId, cancellationToken);
+
     public async Task<T?> GetJsonAsync<T>(string path, CancellationToken cancellationToken = default)
     {
         using var response = await SendAsync(HttpMethod.Get, path, null, cancellationToken).ConfigureAwait(false);
@@ -177,6 +189,30 @@ public sealed class ServerApiClient
         {
             return Array.Empty<ServerRequestRow>();
         }
+    }
+
+    private async Task<string> SendRequestActionAsync(string method, string videoId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(videoId))
+        {
+            throw new ArgumentException("Video id is required.", nameof(videoId));
+        }
+
+        using var content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("ytid", videoId.Trim()) });
+        using var response = await SendAsync(HttpMethod.Post, $"/fetch?method={Uri.EscapeDataString(method)}", content, cancellationToken).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new UnauthorizedAccessException("Unauthorized");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(ExtractErrorMessage(body, response.StatusCode));
+        }
+
+        return ExtractSuccessMessage(body, method, videoId);
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content, CancellationToken cancellationToken)
@@ -245,5 +281,25 @@ public sealed class ServerApiClient
         }
 
         return body;
+    }
+
+    private static string ExtractSuccessMessage(string body, string method, string videoId)
+    {
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String)
+                {
+                    return message.GetString() ?? $"{method} succeeded for {videoId}.";
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return $"{method} succeeded for {videoId}.";
     }
 }

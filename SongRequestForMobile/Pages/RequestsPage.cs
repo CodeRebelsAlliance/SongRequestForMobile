@@ -10,6 +10,8 @@ public sealed class RequestsPage : ContentPage
     private readonly IRequestSyncService _requestSyncService;
     private readonly IPlayerQueueService _queueService;
     private readonly IQueueItemFactory _queueItemFactory;
+    private readonly ServerApiClient _serverApiClient;
+    private readonly AppState _appState;
     private readonly ObservableCollection<RequestDisplayItem> _items = new();
     private readonly CollectionView _collectionView;
     private readonly Border _badgeBorder;
@@ -18,11 +20,13 @@ public sealed class RequestsPage : ContentPage
     private readonly IDispatcherTimer _timer;
     private bool _isActive;
 
-    public RequestsPage(IRequestSyncService requestSyncService, IPlayerQueueService queueService, IQueueItemFactory queueItemFactory)
+    public RequestsPage(IRequestSyncService requestSyncService, IPlayerQueueService queueService, IQueueItemFactory queueItemFactory, ServerApiClient serverApiClient, AppState appState)
     {
         _requestSyncService = requestSyncService;
         _queueService = queueService;
         _queueItemFactory = queueItemFactory;
+        _serverApiClient = serverApiClient;
+        _appState = appState;
         _requestSyncService.Updated += OnServiceUpdated;
 
         _badgeLabel = new Label
@@ -266,7 +270,7 @@ public sealed class RequestsPage : ContentPage
 
     private async Task ShowActionMenuAsync(RequestDisplayItem item)
     {
-        var choice = await DisplayActionSheet($"Queue '{item.Title}'", "Cancel", null, "Queue", "Play next", "Play now (replace queue)");
+        var choice = await DisplayActionSheet($"Actions for '{item.Title}'", "Cancel", null, "Queue", "Play next", "Play now (replace queue)", "Approve", "Unapprove", "Blacklist", "Delete");
         var queueItem = _queueItemFactory.FromRequest(item);
 
         switch (choice)
@@ -280,6 +284,35 @@ public sealed class RequestsPage : ContentPage
             case "Play now (replace queue)":
                 await _queueService.PlayNowReplaceQueueAsync(queueItem);
                 break;
+            case "Approve":
+                await ExecuteServerActionAsync(() => _serverApiClient.ApproveRequestAsync(item.VideoId));
+                break;
+            case "Unapprove":
+                await ExecuteServerActionAsync(() => _serverApiClient.UnapproveRequestAsync(item.VideoId));
+                break;
+            case "Blacklist":
+                await ExecuteServerActionAsync(() => _serverApiClient.BlacklistRequestAsync(item.VideoId));
+                break;
+            case "Delete":
+                await ExecuteServerActionAsync(() => _serverApiClient.DeleteRequestAsync(item.VideoId));
+                break;
+        }
+    }
+
+    private async Task ExecuteServerActionAsync(Func<Task<string>> action)
+    {
+        try
+        {
+            _serverApiClient.Configure(_appState.Settings.ServerBaseUrl, _appState.Settings.BearerToken);
+            _subtitleLabel.Text = "Submitting server action...";
+            var message = await action();
+            _subtitleLabel.Text = message;
+            await _requestSyncService.RefreshAsync();
+            UpdateUiFromService();
+        }
+        catch (Exception ex)
+        {
+            _subtitleLabel.Text = $"Action failed: {ex.Message}";
         }
     }
 
