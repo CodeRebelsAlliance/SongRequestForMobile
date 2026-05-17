@@ -1,0 +1,418 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+using YoutubeExplode;
+using YoutubeExplode.Common;
+using YoutubeExplode.Videos.ClosedCaptions;
+using YoutubeExplode.Videos.Streams;
+
+namespace SongRequestForMobile
+{
+    public class YoutubeService
+    {
+        private readonly YoutubeClient _youtubeClient;
+        private readonly HttpClient _httpClient;
+
+        public YoutubeService(IReadOnlyList<Cookie>? cookies = null)
+        {
+            var cookieList = cookies?.ToArray() ?? Array.Empty<Cookie>();
+            var handler = new HttpClientHandler
+            {
+                CookieContainer = new CookieContainer(),
+                UseCookies = true
+            };
+
+            foreach (var cookie in cookieList)
+            {
+                try
+                {
+                    handler.CookieContainer.Add(cookie);
+                }
+                catch (CookieException)
+                {
+                    // Skip invalid cookies that the platform may have exposed.
+                }
+            }
+
+            _youtubeClient = cookieList.Length > 0
+                ? new YoutubeClient(new HttpClient(handler))
+                : new YoutubeClient();
+
+            _httpClient = new HttpClient(handler)
+            {
+                BaseAddress = new Uri("https://api.lyrics.ovh/v1")
+            };
+        }
+
+        public static string ExtractVideoId(string url)
+        {
+            // Define regex patterns for different types of YouTube URLs
+            string[] patterns = new string[]
+            {
+            @"(?:https?://)?(?:www\.)?youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})",  // Standard URL
+            @"(?:https?://)?youtu\.be/([a-zA-Z0-9_-]{11})",                       // Shortened URL
+            @"(?:https?://)?(?:www\.)?youtube\.com/embed/([a-zA-Z0-9_-]{11})",     // Embed URL
+            @"(?:https?://)?(?:www\.)?youtube\.com/v/([a-zA-Z0-9_-]{11})",         // /v/ URL
+            @"(?:https?://)?(?:www\.)?youtube\.com/e/([a-zA-Z0-9_-]{11})",         // /e/ URL
+            @"(?:https?://)?(?:www\.)?youtube\.com/shorts/([a-zA-Z0-9_-]{11})",    // /shorts/ URL
+            @"(?:https?://)?(?:www\.)?youtube\.com/live/([a-zA-Z0-9_-]{11})",      // /live/ URL
+            @"(?:https?://)?(?:www\.)?music\.youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})",  // Music URL
+            @"(?:https?://)?m\.youtube\.com/watch\?app=desktop&v=([a-zA-Z0-9_-]{11})"     // Mobile URL
+            };
+
+            // Iterate over the patterns and search for a match
+            foreach (string pattern in patterns)
+            {
+                var match = Regex.Match(url, pattern);
+                if (match.Success)
+                {
+                    return match.Groups[1].Value;
+                }
+            }
+
+            // Return null if no match is found
+            return "404";
+        }
+
+        public static string FormatSeconds(int totalSeconds)
+        {
+            int minutes = totalSeconds / 60;
+            int seconds = totalSeconds % 60;
+
+            // Use PadLeft to ensure two-digit formatting for both minutes and seconds
+            string formattedTime = minutes.ToString().PadLeft(2, '0') + ":" + seconds.ToString().PadLeft(2, '0');
+
+            return formattedTime;
+        }
+
+        public async Task<(string Title, TimeSpan Length, string Creator)> GetVideoMetadataAsync(string videoUrl)
+        {
+            var video = await _youtubeClient.Videos.GetAsync(videoUrl);
+
+            string title = video.Title;
+            TimeSpan length = video.Duration ?? TimeSpan.Zero;
+            string creator = video.Author.ChannelTitle;
+
+            return (title, length, creator);
+        }
+
+        public string GetYouTubeVideoId(string url)
+        {
+            var videoId = ExtractVideoId(url);
+            if (videoId == "404")
+            {
+                return string.Empty;
+            }
+
+            return videoId;
+        }
+
+        public async Task<string> DownloadVideoAsync(string videoUrl, string downloadPath)
+        {
+            await Task.Yield();
+
+            string videoId = GetYouTubeVideoId(videoUrl);
+            if (string.IsNullOrEmpty(videoId))
+            {
+                throw new Exception("Invalid YouTube URL. Unable to extract video ID.");
+            }
+
+            var streamManifest = await Task.Run(async () => await _youtubeClient.Videos.Streams.GetManifestAsync(videoId).ConfigureAwait(false)).ConfigureAwait(false);
+            var audioStreams = streamManifest.GetAudioOnlyStreams();
+            if (audioStreams == null || !audioStreams.Any())
+            {
+                throw new Exception("No suitable video stream found. The input stream collection is empty.");
+            }
+
+            var originalStreams = audioStreams
+                .Where(a => a.AudioLanguage != null &&
+                            a.AudioLanguage.ToString().IndexOf("Original", StringComparison.OrdinalIgnoreCase) >= 0);
+
+            var selectedStream = audioStreams.GetWithHighestBitrate();
+
+            if (originalStreams.Any())
+            {
+                selectedStream = originalStreams
+                    .OrderByDescending(a => a.Bitrate)
+                    .FirstOrDefault();
+            }
+            else
+            {
+                selectedStream = audioStreams.GetWithHighestBitrate();
+            }
+
+            if (selectedStream == null)
+            {
+                throw new Exception("No suitable audio stream found.");
+            }
+
+            string videoFileName = $"{videoId}.mp3";
+            string filePath = Path.Combine(downloadPath, videoFileName);
+
+            await Task.Run(async () => await _youtubeClient.Videos.Streams.DownloadAsync(selectedStream, filePath).ConfigureAwait(false)).ConfigureAwait(false);
+
+            return filePath;
+        }
+
+
+
+        public async Task<string> DownloadAndConvertVideoAsync(string videoUrl, string downloadPath)
+        {
+            try
+            {
+                string videoId = GetYouTubeVideoId(videoUrl);
+                if (string.IsNullOrEmpty(videoId))
+                {
+                    throw new Exception("Invalid YouTube URL. Unable to extract video ID.");
+                }
+
+                string mp4FileName = $"{videoId}.mp3";
+                string mp3FileName = $"{videoId}.mp3";
+                string mp4FilePath = Path.Combine(downloadPath, mp4FileName);
+                string mp3FilePath = Path.Combine(downloadPath, mp3FileName);
+
+                await DownloadVideoAsync(videoUrl, downloadPath).ConfigureAwait(false);
+                //await ConvertMp4ToMp3WithFFmpeg(mp4FilePath, mp3FilePath);
+                //if (File.Exists(mp3FilePath))
+                //{
+                //    File.Delete(mp3FilePath);
+                //}
+
+                return mp3FilePath;
+            }
+            catch (Exception ex)
+            {
+                //MessageBox.Show($"Error downloading and converting video: {ex.Message}");
+                throw;
+            }
+        }
+
+        private async Task ConvertMp4ToMp3WithFFmpeg(string inputFilePath, string outputFilePath)
+        {
+            try
+            {
+                string ffmpegPath = @"ffmpeg\ffmpeg.exe";
+                string arguments = $"-i \"{inputFilePath}\" -vn -acodec libmp3lame -q:a 2 \"{outputFilePath}\"";
+
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = arguments,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                };
+
+                using (Process process = Process.Start(startInfo))
+                {
+                    await process.WaitForExitAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                //MessageBox.Show($"Error converting MP4 to MP3: {ex.Message}");
+                throw;
+            }
+        }
+
+        public sealed class SubtitleFetchResult
+        {
+            public string PlainText { get; set; } = string.Empty;
+            public string TimedLrcText { get; set; } = string.Empty;
+        }
+
+        public async Task<SubtitleFetchResult?> TryGetSubtitlesAsync(string videoUrl)
+        {
+            try
+            {
+                string videoId = GetYouTubeVideoId(videoUrl);
+                if (string.IsNullOrWhiteSpace(videoId))
+                {
+                    return null;
+                }
+
+                var captionsManifest = await _youtubeClient.Videos.ClosedCaptions.GetManifestAsync(videoId);
+                string[] preferredLanguages = { "de", "en", "fr" };
+
+                ClosedCaptionTrackInfo subtitleTrack = null;
+
+                foreach (var lang in preferredLanguages)
+                {
+                    subtitleTrack = captionsManifest.TryGetByLanguage(lang);
+                    if (subtitleTrack != null)
+                        break;
+                }
+
+                // If no preferred language tracks are found, use any available track
+                if (subtitleTrack == null)
+                {
+                    subtitleTrack = captionsManifest.Tracks.FirstOrDefault();
+                }
+
+                if (subtitleTrack == null)
+                {
+                    return null;
+                }
+
+                var captions = await _youtubeClient.Videos.ClosedCaptions.GetAsync(subtitleTrack);
+
+                var captionItems = captions.Captions
+                    .Select(c => new { Offset = c.Offset, Text = c.Text?.Trim() })
+                    .Where(c => !string.IsNullOrWhiteSpace(c.Text))
+                    .ToList();
+
+                string subtitleText = string.Join(
+                    Environment.NewLine,
+                    captionItems.Select(c => c.Text));
+
+                if (string.IsNullOrWhiteSpace(subtitleText))
+                {
+                    return null;
+                }
+
+                string timedText = string.Join(
+                    Environment.NewLine,
+                    captionItems.Select(c => $"[{FormatLrcTimestamp(c.Offset)}]{c.Text}"));
+
+                return new SubtitleFetchResult
+                {
+                    PlainText = subtitleText,
+                    TimedLrcText = timedText
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public async Task<string?> TryGetSubtitlesTextAsync(string videoUrl)
+        {
+            var subtitleResult = await TryGetSubtitlesAsync(videoUrl);
+            if (subtitleResult == null || string.IsNullOrWhiteSpace(subtitleResult.PlainText))
+            {
+                return null;
+            }
+
+            return subtitleResult.PlainText;
+        }
+
+        public async Task<string> DownloadSubtitlesAndGetTextAsync(string videoUrl, string downloadPath)
+        {
+            var subtitleText = await TryGetSubtitlesTextAsync(videoUrl);
+            if (string.IsNullOrWhiteSpace(subtitleText))
+            {
+                throw new Exception("No subtitles available for this video.");
+            }
+
+            return subtitleText;
+        }
+
+        private static string FormatLrcTimestamp(TimeSpan offset)
+        {
+            int minutes = (int)offset.TotalMinutes;
+            int seconds = offset.Seconds;
+            int centiseconds = offset.Milliseconds / 10;
+            return $"{minutes:D2}:{seconds:D2}.{centiseconds:D2}";
+        }
+
+
+
+        public async Task<string> GetLyricsAsync(string artist, string title, string id)
+        {
+            try
+            {
+                string preparedTitle = Uri.EscapeDataString(title);
+                string preparedArtist = Uri.EscapeDataString(artist);
+                string requestUri = $"/{preparedArtist}/{preparedTitle}";
+
+                // Log the constructed URL to debu
+
+                HttpResponseMessage response = await _httpClient.GetAsync(_httpClient.BaseAddress + requestUri);
+                response.EnsureSuccessStatusCode();
+
+                string responseBody = await response.Content.ReadAsStringAsync();
+
+                // Parse JSON response to get lyrics
+                dynamic jsonResponse = Newtonsoft.Json.JsonConvert.DeserializeObject(responseBody);
+                string lyrics = jsonResponse.lyrics;
+
+                string completelyrics = "Lyrics: Lyrics.OVH API\n" + lyrics;
+
+                return completelyrics;
+            }
+            catch (HttpRequestException ex)
+            {
+                try
+                {
+                    string desc = await GetVideoDescriptionAsync(id);
+
+                    return "No Lyrics (YouTube Description)\n" + desc + "\n\nIf there aren't any lyrics in the description, please look them up by clicking the link below!";
+                }
+                catch (Exception exx)
+                {
+                    return "No Lyrics found, not even a description. Please look up your own lyrics using the button below!";
+                }
+            }
+            catch (Exception ex)
+            {
+                //MessageBox.Show($"Error: {ex.Message}");
+                throw;
+            }
+        }
+
+        public void SearchLyricsOnDuckDuckGo(string artist, string title)
+        {
+            string searchQuery = $"{artist} {title} lyrics";
+            //LyricsLookup searchForm = new LyricsLookup(searchQuery);
+            //searchForm.Show();
+        }
+
+        public async Task<string> GetVideoDescriptionAsync(string videoUrl)
+        {
+            var video = await _youtubeClient.Videos.GetAsync(videoUrl);
+            return video.Description;
+        }
+
+        public async Task<string> GetThumbnailUrlAsync(string videoUrl)
+        {
+            var video = await _youtubeClient.Videos.GetAsync(videoUrl);
+            return video.Thumbnails.GetWithHighestResolution().Url;
+        }
+
+        public async Task<List<SearchResult>> SearchAsync(string query, int maxResults = 10)
+        {
+            try
+            {
+                var searchResults = await _youtubeClient.Search.GetVideosAsync(query).CollectAsync(maxResults);
+                return searchResults.Select(video => new SearchResult
+                {
+                    VideoId = video.Id,
+                    Title = video.Title,
+                    Author = video.Author.ChannelTitle,
+                    Duration = video.Duration
+                }).ToList();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Search failed: {ex.Message}");
+            }
+        }
+    }
+
+    public class SearchResult
+    {
+        public string VideoId { get; set; }
+        public string Title { get; set; }
+        public string Author { get; set; }
+        public TimeSpan? Duration { get; set; }
+    }
+}

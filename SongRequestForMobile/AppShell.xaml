@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Shell
+    x:Class="SongRequestForMobile.AppShell"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:local="clr-namespace:SongRequestForMobile"
+    xmlns:pages="clr-namespace:SongRequestForMobile.Pages"
+    Title="SongRequestForMobile">
+
+    <TabBar>
+        <ShellContent
+            Title="Add"
+            ContentTemplate="{DataTemplate local:MainPage}"
+            Route="AddPage" />
+
+        <ShellContent
+            Title="Requests"
+            ContentTemplate="{DataTemplate pages:RequestsPage}"
+            Route="RequestsPage" />
+
+        <ShellContent
+            Title="Player"
+            ContentTemplate="{DataTemplate pages:PlayerPage}"
+            Route="PlayerPage" />
+
+        <ShellContent
+            Title="Settings"
+            ContentTemplate="{DataTemplate pages:SettingsPage}"
+            Route="SettingsPage" />
+    </TabBar>
+
+</Shell>

@@ -1,0 +1,640 @@
+{
+  "service": "Song Requests Server",
+  "version": "generated-from-source",
+  "source_files": [
+    "app/app.py",
+    "engines/health_check_engine.py",
+    "engines/logs_engine.py",
+    "engines/jwt_engine.py"
+  ],
+  "base_url": "/",
+  "auth": {
+    "admin_authenticate_decorator": {
+      "supported_methods": [
+        "Flask session cookie: session[Authorization] == bearer token",
+        "Authorization header: Bearer <BEARER_TOKEN>",
+        "JWT token (validated against external issuer/public key)"
+      ],
+      "note": "Routes marked as requiring auth use the @authenticate() decorator."
+    }
+  },
+  "endpoint_groups": {
+    "public_pages": [
+      {
+        "path": "/",
+        "method": "GET",
+        "returns": "text/html",
+        "responses": {
+          "200": "index page or sendin closed page"
+        }
+      },
+      {
+        "path": "/success",
+        "method": "GET",
+        "returns": "text/html",
+        "responses": {
+          "200": "success page"
+        }
+      },
+      {
+        "path": "/ytmusic",
+        "method": "GET",
+        "returns": "text/html",
+        "responses": {
+          "200": "YouTube Music search page"
+        }
+      },
+      {
+        "path": "/music-share",
+        "method": "GET",
+        "returns": "text/html",
+        "responses": {
+          "200": "Music Share receiver page"
+        }
+      },
+      {
+        "path": "/alreadysent",
+        "method": "GET",
+        "returns": "text/html",
+        "responses": {
+          "200": "already sent page"
+        }
+      },
+      {
+        "path": "/failure_blacklist",
+        "method": "GET",
+        "returns": "text/html",
+        "responses": {
+          "200": "blacklist failure page"
+        }
+      },
+      {
+        "path": "/failure_wrongurl",
+        "method": "GET",
+        "returns": "text/html",
+        "responses": {
+          "200": "invalid URL failure page"
+        }
+      },
+      {
+        "path": "/failure_srclosed",
+        "method": "GET",
+        "returns": "text/html",
+        "responses": {
+          "200": "send-in closed page"
+        }
+      },
+      {
+        "path": "/sendin",
+        "method": "POST",
+        "consumes": "application/x-www-form-urlencoded or multipart/form-data",
+        "request": {
+          "form_fields": {
+            "ytlink": "string (YouTube URL or 11-char ID)",
+            "message": "string (optional)"
+          }
+        },
+        "responses": {
+          "301": "redirects to ./success, ./failure_wrongurl, ./alreadysent, ./failure_blacklist, or ./",
+          "400": {
+            "content_type": "application/json",
+            "body": {
+              "status": "bad request",
+              "message": "how tf did you manage to do this?"
+            }
+          }
+        }
+      }
+    ],
+    "authentication_pages": [
+      {
+        "path": "/login",
+        "method": "POST",
+        "auth": "optional (accepts form token or existing auth)",
+        "request": {
+          "form_fields": {
+            "Authorization": "string (bearer token value)"
+          }
+        },
+        "responses": {
+          "301": "redirect ./admin (both success and failure)"
+        }
+      },
+      {
+        "path": "/logout",
+        "method": "GET",
+        "responses": {
+          "301": "redirect ./admin"
+        }
+      },
+      {
+        "path": "/jwt-callback",
+        "method": "GET",
+        "request": {
+          "query_params": {
+            "token": "string"
+          }
+        },
+        "responses": {
+          "301": "redirect sr://authenticate?jwt=<token>; sets cookie sr_auth_token"
+        }
+      },
+      {
+        "path": "/jwt-issuer",
+        "method": "GET",
+        "returns": "application/json",
+        "responses": {
+          "200": {
+            "issuer": "string"
+          }
+        }
+      }
+    ],
+    "admin_pages": [
+      {
+        "path": "/admin",
+        "method": "GET",
+        "auth": "required",
+        "responses": {
+          "200": "login page when unauthorized",
+          "301": "redirect ./admin-inputlist when authorized"
+        }
+      },
+      {
+        "path": "/admin-inputlist",
+        "method": "GET",
+        "auth": "required",
+        "responses": {
+          "200": "admin input list page",
+          "401": "login page"
+        }
+      },
+      {
+        "path": "/admin-approvedlist",
+        "method": "GET",
+        "auth": "required",
+        "responses": {
+          "200": "admin approved list page",
+          "401": "login page"
+        }
+      },
+      {
+        "path": "/admin-blacklist",
+        "method": "GET",
+        "auth": "required",
+        "responses": {
+          "200": "admin blacklist page",
+          "401": "login page"
+        }
+      },
+      {
+        "path": "/admin-jwt-subjects",
+        "method": "GET",
+        "auth": "required",
+        "responses": {
+          "200": "admin JWT subjects page",
+          "401": "login page"
+        }
+      },
+      {
+        "path": "/admin-api-keys",
+        "method": "GET",
+        "auth": "required",
+        "responses": {
+          "200": "admin API keys page",
+          "401": "login page"
+        }
+      },
+      {
+        "path": "/admin-remote",
+        "method": "GET",
+        "auth": "required",
+        "responses": {
+          "200": "admin remote page",
+          "401": "login page"
+        }
+      }
+    ],
+    "core_json_api": [
+      {
+        "path": "/health",
+        "method": "GET",
+        "returns": "application/json",
+        "responses": {
+          "200": {
+            "status": "healthy"
+          }
+        }
+      },
+      {
+        "path": "/ping",
+        "method": "GET",
+        "returns": "application/json",
+        "responses": {
+          "200": {
+            "status": "success",
+            "message": "pong"
+          }
+        }
+      },
+      {
+        "path": "/search-music",
+        "method": "GET",
+        "returns": "application/json",
+        "request": {
+          "query_params": {
+            "query": "string (required, non-empty)"
+          }
+        },
+        "responses": {
+          "200": {
+            "status": "success",
+            "results": [
+              {
+                "videoId": "string",
+                "title": "string",
+                "channel": "string",
+                "thumbnail": "string"
+              }
+            ]
+          },
+          "400": {
+            "status": "bad request",
+            "message": "no query provided"
+          },
+          "404": {
+            "status": "error",
+            "message": "no results found"
+          },
+          "500": {
+            "status": "error",
+            "message": "no api keys found"
+          }
+        }
+      },
+      {
+        "path": "/clear-api-keys",
+        "method": "POST",
+        "auth": "required",
+        "returns": "application/json",
+        "responses": {
+          "200": {
+            "status": "success",
+            "message": "cleared all api keys"
+          },
+          "401": {
+            "status": "unauthorized",
+            "message": "unauthorized"
+          }
+        }
+      }
+    ],
+    "admin_fetch_multiplex_api": [
+      {
+        "path": "/fetch",
+        "method": "POST",
+        "auth": "required",
+        "description": "Single endpoint dispatching many admin operations using query parameter 'method'.",
+        "request": {
+          "query_params": {
+            "method": "string (required)"
+          },
+          "body_format": "mostly form-data; some methods expect JSON",
+          "common_error": {
+            "401": {
+              "status": "unauthorized",
+              "message": "unauthorized"
+            },
+            "400": {
+              "status": "bad request",
+              "message": "wrong method"
+            }
+          }
+        },
+        "operations": {
+          "add-admin-jwt-subject": {
+            "form_fields": { "subject": "string" },
+            "response_200": { "status": "success", "message": "added admin jwt subject" }
+          },
+          "remove-admin-jwt-subject": {
+            "form_fields": { "subject": "string" },
+            "response_200": { "status": "success", "message": "removed admin jwt subject" }
+          },
+          "add-api-key": {
+            "form_fields": { "api_key": "string (required, length 39)" },
+            "responses": {
+              "200": { "status": "success", "message": "added api key" },
+              "400": [
+                { "status": "bad request", "message": "no api key provided" },
+                { "status": "bad request", "message": "api key must be 39 characters long" }
+              ]
+            }
+          },
+          "remove-api-key": {
+            "form_fields": { "api_key": "string (required)" },
+            "responses": {
+              "200": { "status": "success", "message": "removed api key" },
+              "400": { "status": "bad request", "message": "no api key provided" }
+            }
+          },
+          "get-admin-jwt-subjects": {
+            "response_200": ["string"]
+          },
+          "get-database": {
+            "response_200": [
+              [
+                "ytid:string",
+                "message:string",
+                "is_approved:boolean",
+                "time:string"
+              ]
+            ]
+          },
+          "get-blacklist": {
+            "response_200": ["ytid:string"]
+          },
+          "add": {
+            "form_fields": { "ytid": "string" },
+            "response_200": { "status": "success", "message": "added id to approved_list" }
+          },
+          "delete": {
+            "form_fields": { "ytid": "string" },
+            "response_200": { "status": "success", "message": "removed id from input_list and approved_list" }
+          },
+          "blacklist": {
+            "form_fields": { "ytid": "string" },
+            "response_200": { "status": "success", "message": "added id to black_list and removed id from other lists" }
+          },
+          "unblacklist": {
+            "form_fields": { "ytid": "string" },
+            "response_200": { "status": "success", "message": "removed id from black_list" }
+          },
+          "approve": {
+            "form_fields": { "ytid": "string" },
+            "response_200": { "status": "success", "message": "added id to approved_list and removed id from input_list" }
+          },
+          "unapprove": {
+            "form_fields": { "ytid": "string" },
+            "response_200": { "status": "success", "message": "removed id from approved_list and added id to input_list" }
+          },
+          "addlist": {
+            "form_fields": {
+              "ytids": "JSON string encoded object: {\"ytids\": [\"id1\", \"id2\"]}"
+            },
+            "response_200": { "status": "success", "message": "added list to approved_list" }
+          },
+          "clear": {
+            "form_fields": { "list": "input_list | approved_list | black_list | both | all" },
+            "responses": {
+              "200": [
+                { "status": "success", "message": "cleared input_list" },
+                { "status": "success", "message": "cleared approved_list" },
+                { "status": "success", "message": "cleared black_list" },
+                { "status": "success", "message": "cleared approved_list and input_list" },
+                { "status": "success", "message": "cleared approved_list, input_list and black_list" }
+              ],
+              "400": { "status": "bad request", "message": "wrong list" }
+            }
+          },
+          "export": {
+            "form_fields": { "list": "approved_list | input_list | black_list" },
+            "responses": {
+              "200": "application/json file download",
+              "400": { "status": "bad request", "message": "wrong list" }
+            }
+          },
+          "import": {
+            "response_200": {
+              "status": "success",
+              "message": "das hier ist einfach noch nicht implementiert aber wir lassen den button jetzt einfach mal garnichts machen"
+            }
+          },
+          "get-bad-words": {
+            "response_200": ["string"]
+          },
+          "add-bad-word": {
+            "form_fields": { "word": "string" },
+            "response_200": { "status": "success", "message": "added bad word" }
+          },
+          "delete-bad-word": {
+            "form_fields": { "word": "string" },
+            "response_200": { "status": "success", "message": "deleted bad word" }
+          },
+          "get-sendin-allowed": {
+            "response_200": ["boolean"]
+          },
+          "set-sendin-allowed": {
+            "form_fields": { "sendin-allowed": "string: 'true' or other" },
+            "responses": {
+              "200": [
+                { "status": "success", "message": "set sendin allowed true" },
+                { "status": "success", "message": "set sendin allowed false" }
+              ]
+            }
+          },
+          "toggle": {
+            "response_200": [
+              { "status": "success", "message": "toggled sendin allowed true" },
+              { "status": "success", "message": "toggled sendin allowed false" }
+            ]
+          },
+          "set-now-playing": {
+            "form_fields": {
+              "now-playing-title": "string",
+              "now-playing-artist": "string"
+            },
+            "response_200": { "status": "success", "message": "set now playing" }
+          },
+          "reset-now-playing": {
+            "response_200": { "status": "success", "message": "reset now playing" }
+          }
+        }
+      }
+    ],
+    "music_share_api": [
+      {
+        "path": "/api/share/start",
+        "method": "POST",
+        "auth": "required",
+        "consumes": "application/json",
+        "request": {
+          "body": {
+            "sessionId": "string (required)"
+          }
+        },
+        "responses": {
+          "200": {
+            "success": true,
+            "sessionId": "string",
+            "timestamp": "number (epoch ms)"
+          },
+          "400": { "success": false, "error": "string" },
+          "401": { "success": false, "error": "Unauthorized", "code": "UNAUTHORIZED" },
+          "409": { "success": false, "error": "string (session id already in use)" },
+          "500": { "success": false, "error": "Internal server error" }
+        }
+      },
+      {
+        "path": "/api/share/{session_id}/metadata",
+        "method": "POST",
+        "auth": "required",
+        "consumes": "application/json",
+        "request": {
+          "path_params": {
+            "session_id": "string"
+          },
+          "body": "arbitrary JSON metadata object"
+        },
+        "responses": {
+          "200": { "success": true, "listenersNotified": "number" },
+          "401": { "success": false, "error": "Unauthorized" },
+          "404": { "success": false, "error": "string" },
+          "500": { "success": false, "error": "Internal server error" }
+        }
+      },
+      {
+        "path": "/api/share/{session_id}/audio",
+        "method": "POST",
+        "auth": "required",
+        "consumes": "application/json",
+        "request": {
+          "path_params": {
+            "session_id": "string"
+          },
+          "body": {
+            "sequenceNumber": "number (recommended)",
+            "data": "string (audio payload; format defined by clients)",
+            "...": "additional fields may be accepted"
+          }
+        },
+        "responses": {
+          "200": { "success": true, "buffered": true },
+          "401": { "success": false, "error": "Unauthorized" },
+          "404": { "success": false, "error": "string" },
+          "500": { "success": false, "error": "Internal server error" }
+        }
+      },
+      {
+        "path": "/api/share/{session_id}/stop",
+        "method": "POST",
+        "auth": "required",
+        "request": {
+          "path_params": {
+            "session_id": "string"
+          }
+        },
+        "responses": {
+          "200": {
+            "success": true,
+            "stats": "object (implementation-defined keys from stop_session)"
+          },
+          "401": { "success": false, "error": "Unauthorized" },
+          "404": { "success": false, "error": "Session not found" },
+          "500": { "success": false, "error": "Internal server error" }
+        }
+      },
+      {
+        "path": "/api/share/{session_id}/status",
+        "method": "GET",
+        "auth": "required",
+        "request": {
+          "path_params": {
+            "session_id": "string"
+          }
+        },
+        "responses": {
+          "200": "session status object from music_share.get_session_status",
+          "401": { "isActive": false, "error": "Unauthorized" },
+          "404": { "isActive": false, "error": "Session not found" },
+          "500": { "error": "Internal server error" }
+        }
+      },
+      {
+        "path": "/api/share/{session_id}/metadata",
+        "method": "GET",
+        "auth": "required",
+        "request": {
+          "path_params": {
+            "session_id": "string"
+          }
+        },
+        "responses": {
+          "200": "metadata object",
+          "401": { "error": "Unauthorized" },
+          "404": { "error": "Session not found or no metadata available" },
+          "500": { "error": "Internal server error" }
+        }
+      },
+      {
+        "path": "/api/share/{session_id}/audio",
+        "method": "GET",
+        "auth": "required",
+        "request": {
+          "path_params": {
+            "session_id": "string"
+          },
+          "query_params": {
+            "since": "integer (optional, default -1)"
+          }
+        },
+        "responses": {
+          "200": "JSON array of audio chunk objects",
+          "204": "No Content",
+          "401": { "error": "Unauthorized" },
+          "404": { "error": "Session not found" },
+          "500": { "error": "Internal server error" }
+        }
+      }
+    ],
+    "logs_endpoints": [
+      {
+        "path": "/logs",
+        "method": "GET",
+        "returns": "text/html",
+        "request": {
+          "query_params": {
+            "category": "string (optional)"
+          }
+        },
+        "responses": {
+          "200": "HTML page with recent logs (last 2 days)"
+        }
+      },
+      {
+        "path": "/logs/all",
+        "method": "GET",
+        "returns": "text/html",
+        "request": {
+          "query_params": {
+            "category": "string (optional)"
+          }
+        },
+        "responses": {
+          "200": "HTML page with all logs"
+        }
+      },
+      {
+        "path": "/logs/clear",
+        "method": "GET",
+        "responses": {
+          "302": "redirect ./ after truncating logs_table"
+        }
+      }
+    ],
+    "error_handler": [
+      {
+        "path": "*",
+        "method": "ANY",
+        "condition": "404 Not Found",
+        "responses": {
+          "404": "renders 404.html"
+        }
+      }
+    ]
+  },
+  "notes": {
+    "account_engine": "engines/account_engine.py defines many routes, but no AccountEngine blueprint is registered in app/app.py, so those routes are currently inactive in this server process.",
+    "fetch_set_sendin_allowed_behavior": "Current implementation returns success messages but does not call set_sendin_allowed in method='set-sendin-allowed'.",
+    "response_types": "Some endpoints return Flask redirect responses (301/302/303) or HTML templates rather than JSON."
+  }
+}
