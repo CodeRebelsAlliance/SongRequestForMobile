@@ -1,5 +1,6 @@
 using Microsoft.Maui.Controls;
 using SongRequestForMobile.Models;
+using SongRequestForMobile.Resources;
 using SongRequestForMobile.Services;
 using System.Collections.ObjectModel;
 
@@ -28,7 +29,13 @@ public sealed class ArchivePage : ContentPage
                 var subtitle = new Label { FontSize = 12, TextColor = Colors.Gray };
                 subtitle.SetBinding(Label.TextProperty, nameof(RequestDisplayItem.Channel));
 
-                var deleteButton = new Button { Text = "Delete from Device", BackgroundColor = Colors.IndianRed, TextColor = Colors.White };
+                var deleteButton = new Button
+                {
+                    Text = $"{MaterialIcons.Delete} Delete",
+                    FontFamily = "OpenSansRegular",
+                    BackgroundColor = Colors.IndianRed,
+                    TextColor = Colors.White
+                };
 
                 var stack = new VerticalStackLayout { Spacing = 4, Children = { title, subtitle, deleteButton } };
                 var border = new Border { Padding = 12, StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 10 }, Content = stack, Margin = new Thickness(0,0,0,8) };
@@ -43,7 +50,13 @@ public sealed class ArchivePage : ContentPage
             })
         };
 
-        var clearButton = new Button { Text = "Clear Archive", BackgroundColor = Colors.DarkGray, TextColor = Colors.White };
+        var clearButton = new Button
+        {
+            Text = $"{MaterialIcons.DeleteSweep} Clear All",
+            FontFamily = "OpenSansRegular",
+            BackgroundColor = Colors.DarkGray,
+            TextColor = Colors.White
+        };
         clearButton.Clicked += async (_, _) => await ClearArchiveAsync();
 
         Content = new Grid

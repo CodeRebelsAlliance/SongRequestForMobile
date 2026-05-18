@@ -1,5 +1,6 @@
 using Microsoft.Maui.Controls;
 using SongRequestForMobile.Models;
+using SongRequestForMobile.Resources;
 using SongRequestForMobile.Services;
 using System.Collections.ObjectModel;
 
@@ -29,7 +30,13 @@ public sealed class BlacklistPage : ContentPage
                 var title = new Label { FontAttributes = FontAttributes.Bold };
                 title.SetBinding(Label.TextProperty, nameof(RequestDisplayItem.Title));
 
-                var unblacklistButton = new Button { Text = "Unblacklist", BackgroundColor = Colors.SeaGreen, TextColor = Colors.White };
+                var unblacklistButton = new Button
+                {
+                    Text = $"{MaterialIcons.Check} Unblacklist",
+                    FontFamily = "OpenSansRegular",
+                    BackgroundColor = Colors.SeaGreen,
+                    TextColor = Colors.White
+                };
 
                 var stack = new VerticalStackLayout { Spacing = 4, Children = { title, unblacklistButton } };
                 var border = new Border { Padding = 12, StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 10 }, Content = stack, Margin = new Thickness(0,0,0,8) };

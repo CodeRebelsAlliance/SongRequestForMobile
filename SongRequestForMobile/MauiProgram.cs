@@ -15,6 +15,7 @@ public static class MauiProgram
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+                fonts.AddFont("MaterialSymbolsRounded.ttf", "MaterialIcons");
             });
 
         builder.Services.AddSingleton<IPlaybackStateStore, PlaybackStateStore>();
@@ -31,6 +32,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IThumbnailColorService, ThumbnailColorService>();
         builder.Services.AddSingleton<IPlayerQueueService, PlayerQueueService>();
         builder.Services.AddSingleton<IQueueItemFactory, QueueItemFactory>();
+        builder.Services.AddSingleton<ISettingsExportService, SettingsExportService>();
         builder.Services.AddTransient<YouTubeAuthPage>();
 #if ANDROID
         builder.Services.AddSingleton<IYouTubeCookieProvider, AndroidYouTubeCookieProvider>();

@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls.Shapes;
 using SongRequestForMobile.Models;
+using SongRequestForMobile.Resources;
 using SongRequestForMobile.Services;
 
 namespace SongRequestForMobile;
@@ -168,7 +169,12 @@ public partial class MainPage : ContentPage
                             {
                                 new Label { Text = "Search music", FontAttributes = FontAttributes.Bold },
                                 _searchQueryEntry,
-                                new Button { Text = "Search", Command = new Command(async () => await SearchAsync()) },
+                                new Button
+                                {
+                                    Text = $"{MaterialIcons.Search} Search",
+                                    FontFamily = "OpenSansRegular",
+                                    Command = new Command(async () => await SearchAsync())
+                                },
                                 _searchStatusLabel
                             }
                         }
@@ -216,7 +222,12 @@ public partial class MainPage : ContentPage
                             Children =
                             {
                                 new Label { Text = "Submit", FontAttributes = FontAttributes.Bold },
-                                new Button { Text = "Send song request", Command = new Command(async () => await OnSendClicked()) },
+                                new Button
+                                {
+                                    Text = $"{MaterialIcons.Send} Send request",
+                                    FontFamily = "OpenSansRegular",
+                                    Command = new Command(async () => await OnSendClicked())
+                                },
                                 _statusLabel
                             }
                         }

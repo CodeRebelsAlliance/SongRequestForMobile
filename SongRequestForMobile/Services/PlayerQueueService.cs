@@ -30,6 +30,8 @@ public interface IPlayerQueueService
     void ClearQueue();
     Task SeekAsync(TimeSpan position);
     Task TickAsync();
+    Task PlayNowAsync(PlayerQueueItem item);
+    Task ReplaceQueueAsync(List<PlayerQueueItem> items);
 }
 
 public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
@@ -280,6 +282,23 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
         StopInternal();
         CurrentItem = null;
         Updated?.Invoke(this, EventArgs.Empty);
+    }
+
+    public async Task PlayNowAsync(PlayerQueueItem item)
+    {
+        Remove(item);
+        await PlayItemAsync(Clone(item)).ConfigureAwait(false);
+    }
+
+    public async Task ReplaceQueueAsync(List<PlayerQueueItem> items)
+    {
+        Queue.Clear();
+        foreach (var item in items)
+        {
+            Queue.Add(Clone(item));
+        }
+        Updated?.Invoke(this, EventArgs.Empty);
+        await Task.CompletedTask;
     }
 
     public void Dispose()

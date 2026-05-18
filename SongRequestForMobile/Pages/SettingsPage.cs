@@ -1,4 +1,7 @@
+using System.IO;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Maui.Controls.Shapes;
+using SongRequestForMobile.Resources;
 using SongRequestForMobile.Services;
 
 namespace SongRequestForMobile.Pages;
@@ -10,18 +13,21 @@ public sealed class SettingsPage : ContentPage
     private readonly IYouTubeCookieStore _cookieStore;
     private readonly YouTubeSession _youtubeSession;
     private readonly ServerApiClient _serverApiClient;
+    private readonly ISettingsExportService _exportService;
     private readonly Label _cookieStatusLabel;
     private readonly Label _statusLabel;
     private readonly Entry _serverBaseUrlEntry;
     private readonly Entry _bearerTokenEntry;
+    private readonly Switch _autopilotToggle;
 
-    public SettingsPage(AppState appState, IAppSettingsStore settingsStore, IYouTubeCookieStore cookieStore, YouTubeSession youtubeSession, ServerApiClient serverApiClient)
+    public SettingsPage(AppState appState, IAppSettingsStore settingsStore, IYouTubeCookieStore cookieStore, YouTubeSession youtubeSession, ServerApiClient serverApiClient, ISettingsExportService exportService)
     {
         _appState = appState;
         _settingsStore = settingsStore;
         _cookieStore = cookieStore;
         _youtubeSession = youtubeSession;
         _serverApiClient = serverApiClient;
+        _exportService = exportService;
 
         _cookieStatusLabel = new Label
         {
@@ -44,6 +50,11 @@ public sealed class SettingsPage : ContentPage
         {
             Placeholder = "Bearer token",
             IsPassword = true
+        };
+
+        _autopilotToggle = new Switch
+        {
+            ThumbColor = Colors.White
         };
 
         Title = "Settings";
@@ -77,8 +88,18 @@ public sealed class SettingsPage : ContentPage
                                     Spacing = 10,
                                     Children =
                                     {
-                                        new Button { Text = "Save settings", Command = new Command(SaveSettings) },
-                                        new Button { Text = "Test server", Command = new Command(TestServer) }
+                                        new Button
+                                        {
+                                            Text = $"{MaterialIcons.Save} Save",
+                                            FontFamily = "OpenSansRegular",
+                                            Command = new Command(SaveSettings)
+                                        },
+                                        new Button
+                                        {
+                                            Text = $"{MaterialIcons.Refresh} Test",
+                                            FontFamily = "OpenSansRegular",
+                                            Command = new Command(TestServer)
+                                        }
                                     }
                                 }
                             }
@@ -94,10 +115,19 @@ public sealed class SettingsPage : ContentPage
                             {
                                 new Label { Text = "YouTube authentication", FontAttributes = FontAttributes.Bold },
                                 _cookieStatusLabel,
-                                new Button { Text = "Sign in / capture cookies", Command = new Command(OpenYoutubeAuth) }
+                                new Button
+                                {
+                                    Text = $"{MaterialIcons.Lock} Sign in / capture cookies",
+                                    FontFamily = "OpenSansRegular",
+                                    Command = new Command(OpenYoutubeAuth)
+                                }
                             }
                         }
                     },
+                    // Autopilot Mode section with gradient background
+                    CreateAutopilotSection(),
+                    // Import/Export section
+                    CreateImportExportSection(),
                     new Frame
                     {
                         Padding = 12,
@@ -118,6 +148,126 @@ public sealed class SettingsPage : ContentPage
         _ = LoadAsync();
     }
 
+    private Frame CreateAutopilotSection()
+    {
+        var gradientBox = new BoxView
+        {
+            BackgroundColor = Colors.Transparent
+        };
+
+        var toggleLabel = new Label
+        {
+            Text = "Autopilot Mode",
+            FontAttributes = FontAttributes.Bold,
+            VerticalOptions = LayoutOptions.Center
+        };
+
+        var descriptionLabel = new Label
+        {
+            Text = "Automatically queue new songs as they arrive from the server.",
+            FontSize = 12,
+            TextColor = Colors.Gray,
+            LineBreakMode = LineBreakMode.WordWrap
+        };
+
+        var contentGrid = new VerticalStackLayout
+        {
+            Spacing = 8,
+            Children =
+            {
+                new HorizontalStackLayout
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        toggleLabel,
+                        _autopilotToggle
+                    }
+                },
+                descriptionLabel
+            }
+        };
+
+        var border = new Border
+        {
+            StrokeShape = new RoundRectangle { CornerRadius = 12 },
+            StrokeThickness = 2,
+            Padding = 12,
+            Content = contentGrid,
+            BackgroundColor = Colors.Transparent
+        };
+
+        // Bind border color to toggle state
+        _autopilotToggle.Toggled += (s, e) =>
+        {
+            border.Stroke = e.Value
+                ? new SolidColorBrush(CreateGradientColor())
+                : Colors.LightGray;
+        };
+
+        var frame = new Frame
+        {
+            Padding = 0,
+            Content = border
+        };
+
+        return frame;
+    }
+
+    private Frame CreateImportExportSection()
+    {
+        return new Frame
+        {
+            Padding = 12,
+            Content = new VerticalStackLayout
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new Label { Text = "Deployment & Sync", FontAttributes = FontAttributes.Bold },
+                    new Label
+                    {
+                        Text = "Export all settings, cookies, and authentication to a file for easy deployment to multiple machines. Import settings from a previously exported file.",
+                        FontSize = 12,
+                        TextColor = Colors.Gray,
+                        LineBreakMode = LineBreakMode.WordWrap
+                    },
+                    new HorizontalStackLayout
+                    {
+                        Spacing = 10,
+                        Children =
+                        {
+                            new Button
+                            {
+                                Text = $"{MaterialIcons.Download} Export",
+                                FontFamily = "OpenSansRegular",
+                                BackgroundColor = Colors.Green,
+                                TextColor = Colors.White,
+                                Command = new Command(ExportSettings),
+                                HorizontalOptions = LayoutOptions.FillAndExpand
+                            },
+                            new Button
+                            {
+                                Text = $"{MaterialIcons.Upload} Import",
+                                FontFamily = "OpenSansRegular",
+                                BackgroundColor = Colors.Blue,
+                                TextColor = Colors.White,
+                                Command = new Command(ImportSettings),
+                                HorizontalOptions = LayoutOptions.FillAndExpand
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    private Color CreateGradientColor()
+    {
+        // Create a multicolor gradient-like color (mixing vibrant colors)
+        return Color.FromRgb(0.8f, 0.2f, 0.8f); // Vibrant purple/magenta
+    }
+
     private async Task LoadAsync()
     {
         _appState.Settings = await _settingsStore.LoadAsync();
@@ -126,14 +276,25 @@ public sealed class SettingsPage : ContentPage
 
         _serverBaseUrlEntry.Text = _appState.Settings.ServerBaseUrl;
         _bearerTokenEntry.Text = _appState.Settings.BearerToken;
+        _autopilotToggle.IsToggled = _appState.Settings.AutopilotMode;
         UpdateCookieStatus();
         _statusLabel.Text = "Settings loaded.";
+
+        // Update border color on load
+        var border = ((Frame)((VerticalStackLayout)((ScrollView)Content).Content).Children[3]).Content as Border;
+        if (border != null)
+        {
+            border.Stroke = _appState.Settings.AutopilotMode
+                ? new SolidColorBrush(CreateGradientColor())
+                : Colors.LightGray;
+        }
     }
 
     private async void SaveSettings()
     {
         _appState.Settings.ServerBaseUrl = _serverBaseUrlEntry.Text?.Trim() ?? string.Empty;
         _appState.Settings.BearerToken = _bearerTokenEntry.Text?.Trim() ?? string.Empty;
+        _appState.Settings.AutopilotMode = _autopilotToggle.IsToggled;
         await _settingsStore.SaveAsync(_appState.Settings);
         _statusLabel.Text = "Settings saved.";
     }
@@ -165,6 +326,93 @@ public sealed class SettingsPage : ContentPage
         await Navigation.PushModalAsync(new NavigationPage(authPage));
         _appState.YoutubeCookies = await _cookieStore.LoadAsync();
         UpdateCookieStatus();
+    }
+
+    private async void ExportSettings()
+    {
+        try
+        {
+            _statusLabel.Text = "Preparing export...";
+
+            // Ensure we have the latest settings
+            _appState.Settings.ServerBaseUrl = _serverBaseUrlEntry.Text?.Trim() ?? string.Empty;
+            _appState.Settings.BearerToken = _bearerTokenEntry.Text?.Trim() ?? string.Empty;
+            _appState.Settings.AutopilotMode = _autopilotToggle.IsToggled;
+            _appState.YoutubeCookies = await _cookieStore.LoadAsync();
+
+            // Export to JSON
+            var json = await _exportService.ExportAsync(_appState.Settings, _appState.YoutubeCookies);
+
+            // Save to Documents/Downloads folder (user-accessible)
+            string filePath;
+#if ANDROID
+            // On Android, use Documents directory which is user-accessible
+            var documentsPath = System.IO.Path.Combine(FileSystem.Current.AppDataDirectory, "..", "Documents");
+            Directory.CreateDirectory(documentsPath);
+            filePath = System.IO.Path.Combine(documentsPath, "SongRequest_Export.json");
+#else
+            // On other platforms, use Documents folder
+            var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            filePath = System.IO.Path.Combine(documentsPath, "SongRequest_Export.json");
+#endif
+
+            await File.WriteAllTextAsync(filePath, json);
+
+            _statusLabel.Text = $"✓ Settings exported to:\n{filePath}";
+        }
+        catch (Exception ex)
+        {
+            _statusLabel.Text = $"Export failed: {ex.Message}";
+        }
+    }
+
+    private async void ImportSettings()
+    {
+        try
+        {
+            _statusLabel.Text = "Select export file...";
+
+            // Use file picker to select export file
+            var result = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Select Settings Export File"
+            });
+
+            if (result == null)
+            {
+                _statusLabel.Text = "Import cancelled.";
+                return;
+            }
+
+            var json = await File.ReadAllTextAsync(result.FullPath);
+            var (settings, cookies) = await _exportService.ImportAsync(json);
+
+            // Apply imported settings
+            _appState.Settings = settings;
+
+            // Save settings
+            await _settingsStore.SaveAsync(settings);
+
+            // Save cookies if any exist
+            if (cookies.Count > 0)
+            {
+                await _cookieStore.SaveAsync(cookies.Select(kvp => 
+                    new System.Net.Cookie(kvp.Key, kvp.Value) { Domain = ".youtube.com" }).ToList());
+            }
+
+            // Update UI
+            _serverBaseUrlEntry.Text = settings.ServerBaseUrl;
+            _bearerTokenEntry.Text = settings.BearerToken;
+            _autopilotToggle.IsToggled = settings.AutopilotMode;
+            _appState.YoutubeCookies = await _cookieStore.LoadAsync();
+            UpdateCookieStatus();
+
+            _statusLabel.Text = "Settings imported successfully!";
+        }
+        catch (Exception ex)
+        {
+            _statusLabel.Text = $"Import failed: {ex.Message}";
+        }
     }
 
     private void UpdateCookieStatus()

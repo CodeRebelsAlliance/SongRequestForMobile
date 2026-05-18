@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Microsoft.Maui.Controls.Shapes;
 using SongRequestForMobile.Models;
+using SongRequestForMobile.Resources;
 using SongRequestForMobile.Services;
 
 namespace SongRequestForMobile.Pages;
@@ -28,6 +29,7 @@ public sealed class RequestsPage : ContentPage
         _serverApiClient = serverApiClient;
         _appState = appState;
         _requestSyncService.Updated += OnServiceUpdated;
+        _requestSyncService.NewItemsDetected += OnNewItemsDetected;
 
         _badgeLabel = new Label
         {
@@ -328,6 +330,28 @@ public sealed class RequestsPage : ContentPage
         {
             _subtitleLabel.Text = $"Action failed: {ex.Message}";
         }
+    }
+
+    private void OnNewItemsDetected(object? sender, AutopilotQueueEventArgs e)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            try
+            {
+                foreach (var item in e.NewItems)
+                {
+                    if (!string.IsNullOrWhiteSpace(item.LocalFilePath) && File.Exists(item.LocalFilePath))
+                    {
+                        var queueItem = _queueItemFactory.FromRequest(item);
+                        _queueService.Enqueue(queueItem);
+                    }
+                }
+            }
+            catch
+            {
+                // silently ignore autopilot queueing errors
+            }
+        });
     }
 
     private static Color AccentFrom(string? seed)

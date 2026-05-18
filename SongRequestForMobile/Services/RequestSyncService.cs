@@ -11,9 +11,15 @@ public interface IRequestSyncService
     IReadOnlyList<RequestDisplayItem> BlacklistItems { get; }
     RequestSyncState State { get; }
     event EventHandler? Updated;
+    event EventHandler<AutopilotQueueEventArgs>? NewItemsDetected;
     Task RefreshAsync(CancellationToken cancellationToken = default);
     Task ClearArchiveAsync(CancellationToken cancellationToken = default);
     Task DeleteFromDeviceAsync(string videoId, CancellationToken cancellationToken = default);
+}
+
+public sealed class AutopilotQueueEventArgs : EventArgs
+{
+    public List<RequestDisplayItem> NewItems { get; set; } = new();
 }
 
 public sealed class RequestSyncService : IRequestSyncService
@@ -33,6 +39,7 @@ public sealed class RequestSyncService : IRequestSyncService
     private readonly ConcurrentDictionary<string, RequestDisplayItem> _itemsById = new(StringComparer.OrdinalIgnoreCase);
     private readonly RequestSyncState _state = new();
     private readonly HashSet<string> _blacklistIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _previouslySyncedIds = new(StringComparer.OrdinalIgnoreCase);
 
     public RequestSyncService(AppState appState, ServerApiClient serverApiClient, IYouTubeCookieStore cookieStore)
     {
@@ -50,6 +57,7 @@ public sealed class RequestSyncService : IRequestSyncService
     public IReadOnlyList<RequestDisplayItem> BlacklistItems => _blacklistIds.Select(id => _itemsById.TryGetValue(id, out var it) ? it : new RequestDisplayItem { VideoId = id, Title = id, IsOnServer = false }).ToList();
     public RequestSyncState State => _state;
     public event EventHandler? Updated;
+    public event EventHandler<AutopilotQueueEventArgs>? NewItemsDetected;
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
@@ -69,10 +77,12 @@ public sealed class RequestSyncService : IRequestSyncService
             _state.StatusText = rows.Count == 0 ? "No requests yet." : $"Synced {rows.Count} request(s).";
 
             var serverIds = new HashSet<string>(rows.Select(r => r.VideoId), StringComparer.OrdinalIgnoreCase);
+            var newItems = new List<RequestDisplayItem>();
 
             // Ensure items that are on server are present and marked
             foreach (var row in rows)
             {
+                var isNew = !_previouslySyncedIds.Contains(row.VideoId);
                 var item = _itemsById.GetOrAdd(row.VideoId, _ => new RequestDisplayItem
                 {
                     VideoId = row.VideoId,
@@ -88,6 +98,12 @@ public sealed class RequestSyncService : IRequestSyncService
                 item.Time = row.Time;
                 item.IsDownloading = true;
                 item.IsOnServer = true;
+
+                if (isNew)
+                {
+                    _previouslySyncedIds.Add(row.VideoId);
+                    newItems.Add(item);
+                }
             }
 
             // Any cached items not in serverIds become archived (IsOnServer=false)
@@ -114,6 +130,12 @@ public sealed class RequestSyncService : IRequestSyncService
             await CacheAndEnrichAsync(rows, cancellationToken).ConfigureAwait(false);
             SaveCache();
             Updated?.Invoke(this, EventArgs.Empty);
+
+            // Notify about new items if autopilot is enabled
+            if (_appState.Settings.AutopilotMode && newItems.Count > 0)
+            {
+                NewItemsDetected?.Invoke(this, new AutopilotQueueEventArgs { NewItems = newItems });
+            }
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) || ex.Message.Contains("401", StringComparison.OrdinalIgnoreCase))
         {
