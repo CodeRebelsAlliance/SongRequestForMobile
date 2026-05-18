@@ -121,8 +121,52 @@ public sealed class ServerApiClient
     public Task<string> BlacklistRequestAsync(string videoId, CancellationToken cancellationToken = default)
         => SendRequestActionAsync("blacklist", videoId, cancellationToken);
 
+    public Task<string> UnblacklistRequestAsync(string videoId, CancellationToken cancellationToken = default)
+        => SendRequestActionAsync("unblacklist", videoId, cancellationToken);
+
     public Task<string> DeleteRequestAsync(string videoId, CancellationToken cancellationToken = default)
         => SendRequestActionAsync("delete", videoId, cancellationToken);
+
+    public async Task<IReadOnlyList<string>> GetBlacklistAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(HttpMethod.Post, "/fetch?method=get-blacklist", null, cancellationToken).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new UnauthorizedAccessException("Unauthorized");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(ExtractErrorMessage(body, response.StatusCode));
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return Array.Empty<string>();
+            }
+
+            var list = new List<string>();
+            foreach (var element in doc.RootElement.EnumerateArray())
+            {
+                if (element.ValueKind == JsonValueKind.String)
+                {
+                    var s = element.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) list.Add(s!);
+                }
+            }
+
+            return list;
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
 
     public async Task<T?> GetJsonAsync<T>(string path, CancellationToken cancellationToken = default)
     {

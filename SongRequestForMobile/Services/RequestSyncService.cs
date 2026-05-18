@@ -7,9 +7,13 @@ namespace SongRequestForMobile.Services;
 public interface IRequestSyncService
 {
     IReadOnlyList<RequestDisplayItem> Items { get; }
+    IReadOnlyList<RequestDisplayItem> ArchivedItems { get; }
+    IReadOnlyList<RequestDisplayItem> BlacklistItems { get; }
     RequestSyncState State { get; }
     event EventHandler? Updated;
     Task RefreshAsync(CancellationToken cancellationToken = default);
+    Task ClearArchiveAsync(CancellationToken cancellationToken = default);
+    Task DeleteFromDeviceAsync(string videoId, CancellationToken cancellationToken = default);
 }
 
 public sealed class RequestSyncService : IRequestSyncService
@@ -28,6 +32,7 @@ public sealed class RequestSyncService : IRequestSyncService
     private readonly string _itemsCachePath;
     private readonly ConcurrentDictionary<string, RequestDisplayItem> _itemsById = new(StringComparer.OrdinalIgnoreCase);
     private readonly RequestSyncState _state = new();
+    private readonly HashSet<string> _blacklistIds = new(StringComparer.OrdinalIgnoreCase);
 
     public RequestSyncService(AppState appState, ServerApiClient serverApiClient, IYouTubeCookieStore cookieStore)
     {
@@ -40,7 +45,9 @@ public sealed class RequestSyncService : IRequestSyncService
         LoadCache();
     }
 
-    public IReadOnlyList<RequestDisplayItem> Items => _itemsById.Values.OrderByDescending(x => x.Time).ToList();
+    public IReadOnlyList<RequestDisplayItem> Items => _itemsById.Values.Where(x => x.IsOnServer).OrderByDescending(x => x.Time).ToList();
+    public IReadOnlyList<RequestDisplayItem> ArchivedItems => _itemsById.Values.Where(x => !x.IsOnServer).OrderByDescending(x => x.Time).ToList();
+    public IReadOnlyList<RequestDisplayItem> BlacklistItems => _blacklistIds.Select(id => _itemsById.TryGetValue(id, out var it) ? it : new RequestDisplayItem { VideoId = id, Title = id, IsOnServer = false }).ToList();
     public RequestSyncState State => _state;
     public event EventHandler? Updated;
 
@@ -61,6 +68,9 @@ public sealed class RequestSyncService : IRequestSyncService
             _state.LastSyncUtc = DateTimeOffset.UtcNow;
             _state.StatusText = rows.Count == 0 ? "No requests yet." : $"Synced {rows.Count} request(s).";
 
+            var serverIds = new HashSet<string>(rows.Select(r => r.VideoId), StringComparer.OrdinalIgnoreCase);
+
+            // Ensure items that are on server are present and marked
             foreach (var row in rows)
             {
                 var item = _itemsById.GetOrAdd(row.VideoId, _ => new RequestDisplayItem
@@ -69,13 +79,36 @@ public sealed class RequestSyncService : IRequestSyncService
                     Message = row.Message,
                     IsApproved = row.IsApproved,
                     Time = row.Time,
-                    IsDownloading = true
+                    IsDownloading = true,
+                    IsOnServer = true
                 });
 
                 item.Message = row.Message;
                 item.IsApproved = row.IsApproved;
                 item.Time = row.Time;
                 item.IsDownloading = true;
+                item.IsOnServer = true;
+            }
+
+            // Any cached items not in serverIds become archived (IsOnServer=false)
+            foreach (var kv in _itemsById)
+            {
+                if (!serverIds.Contains(kv.Key))
+                {
+                    kv.Value.IsOnServer = false;
+                }
+            }
+
+            // Fetch blacklist from server and store ids
+            try
+            {
+                var blacklist = await _serverApiClient.GetBlacklistAsync(cancellationToken).ConfigureAwait(false);
+                _blacklistIds.Clear();
+                foreach (var id in blacklist) _blacklistIds.Add(id);
+            }
+            catch
+            {
+                // ignore blacklist fetch errors - not critical for main list
             }
 
             await CacheAndEnrichAsync(rows, cancellationToken).ConfigureAwait(false);
@@ -96,6 +129,69 @@ public sealed class RequestSyncService : IRequestSyncService
         finally
         {
             _syncGate.Release();
+        }
+    }
+
+    public async Task ClearArchiveAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await _syncGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        try
+        {
+            var archived = ArchivedItems.ToList();
+            foreach (var item in archived)
+            {
+                await DeleteCachedItemAsync(item, cancellationToken).ConfigureAwait(false);
+                _itemsById.TryRemove(item.VideoId, out _);
+            }
+
+            SaveCache();
+            Updated?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            _syncGate.Release();
+        }
+    }
+
+    public async Task DeleteFromDeviceAsync(string videoId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(videoId)) return;
+        if (!await _syncGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        try
+        {
+            if (_itemsById.TryRemove(videoId, out var item))
+            {
+                await DeleteCachedItemAsync(item, cancellationToken).ConfigureAwait(false);
+                SaveCache();
+                Updated?.Invoke(this, EventArgs.Empty);
+            }
+        }
+        finally
+        {
+            _syncGate.Release();
+        }
+    }
+
+    private async Task DeleteCachedItemAsync(RequestDisplayItem item, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var metadata = GetMetadataPath(item.VideoId);
+            var audio = GetAudioPath(item.VideoId);
+            if (File.Exists(metadata)) File.Delete(metadata);
+            if (File.Exists(audio)) File.Delete(audio);
+            await Task.CompletedTask.ConfigureAwait(false);
+        }
+        catch
+        {
         }
     }
 

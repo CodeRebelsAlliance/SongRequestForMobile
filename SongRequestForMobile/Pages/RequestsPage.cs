@@ -78,6 +78,19 @@ public sealed class RequestsPage : ContentPage
         _timer.Tick += async (_, _) => await RefreshAsync();
 
         Title = "Requests";
+
+        // navigation buttons to auxiliary pages (Archive / Blacklist)
+        var navRow = new HorizontalStackLayout
+        {
+            Spacing = 8,
+            Children =
+            {
+                new Button { Text = "Archive", BackgroundColor = Colors.LightGray, Command = new Command(async () => await Navigation.PushAsync(new ArchivePage(_requestSyncService))) },
+                new Button { Text = "Blacklist", BackgroundColor = Colors.LightGray, Command = new Command(async () => await Navigation.PushAsync(new BlacklistPage(_requestSyncService, _serverApiClient, _appState))) }
+            }
+        };
+
+        // build content grid, placing navRow into row 1 so Content is never null during insertion
         Content = new Grid
         {
             RowDefinitions = new RowDefinitionCollection
@@ -105,6 +118,7 @@ public sealed class RequestsPage : ContentPage
                         _subtitleLabel
                     }
                 },
+                navRow.WithGridRow(1),
                 _collectionView.WithGridRow(2)
             }
         };
