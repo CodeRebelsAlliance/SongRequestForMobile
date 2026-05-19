@@ -23,10 +23,17 @@ public static class MauiProgram
         builder.Services.AddSingleton<IAppSettingsStore, AppSettingsStore>();
         builder.Services.AddSingleton<IYouTubeCookieStore, PersistedYouTubeCookieStore>();
         builder.Services.AddSingleton<YouTubeSession>();
-        builder.Services.AddSingleton(sp => new HttpClient(new HttpClientHandler
+        builder.Services.AddSingleton(sp =>
         {
-            AllowAutoRedirect = false
-        }));
+            var client = new HttpClient(new HttpClientHandler
+            {
+                AllowAutoRedirect = false
+            });
+            // Set User-Agent to "SongRequest For Mobile v{version}"
+            var version = Microsoft.Maui.ApplicationModel.AppInfo.VersionString;
+            client.DefaultRequestHeaders.UserAgent.ParseAdd($"SongRequest For Mobile v{version}");
+            return client;
+        });
         builder.Services.AddSingleton<ServerApiClient>();
         builder.Services.AddSingleton<IRequestSyncService, RequestSyncService>();
         builder.Services.AddSingleton<IThumbnailColorService, ThumbnailColorService>();
