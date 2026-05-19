@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SongRequestForMobile.Pages.UpdatePopup"
+             x:Name="popup"
+             Title="Update Available"
+             BackgroundColor="Transparent">
+
+    <Grid RowDefinitions="*,Auto" ColumnDefinitions="*" Padding="0">
+        <!-- Overlay background -->
+        <BoxView Grid.Row="0" Grid.RowSpan="2" Color="#000000" Opacity="0.5" IsVisible="True" />
+
+        <!-- Popup Frame -->
+        <Frame Grid.Row="0" Grid.RowSpan="2" Margin="20" Padding="0" CornerRadius="15" 
+               HasShadow="True" BorderColor="Transparent" VerticalOptions="Center">
+            <Frame.Background>
+                <LinearGradientBrush>
+                    <GradientStop Color="#FFFFFF" Offset="0" />
+                    <GradientStop Color="#F5F5F5" Offset="1" />
+                </LinearGradientBrush>
+            </Frame.Background>
+
+            <VerticalStackLayout Spacing="16" Padding="24">
+                <!-- Header -->
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Padding="0">
+                    <Label Grid.Column="0" Text="Update Available" FontSize="24" 
+                           FontAttributes="Bold" VerticalOptions="Center" TextColor="#333333" />
+                    <Label Grid.Column="1" Text="📦" FontSize="28" VerticalOptions="Center" />
+                </Grid>
+
+                <!-- Version Info -->
+                <VerticalStackLayout Spacing="4" Padding="12" BackgroundColor="#F0F7FF">
+                    <Label FontSize="12" TextColor="#666666">
+                        <Label.Text>
+                            <MultiBinding StringFormat="Version {0} → {1}">
+                                <Binding Path="BindingContext.CurrentVersion" Source="{x:Reference popup}" />
+                                <Binding Path="BindingContext.LatestVersion" Source="{x:Reference popup}" />
+                            </MultiBinding>
+                        </Label.Text>
+                    </Label>
+                </VerticalStackLayout>
+
+                <!-- Release Notes -->
+                <Label Text="Release Notes:" FontSize="14" FontAttributes="Bold" TextColor="#333333" Margin="0,8,0,0" />
+                <ScrollView HeightRequest="150">
+                    <Label x:Name="ReleaseNotesLabel" TextColor="#555555" LineBreakMode="WordWrap" FontSize="12" />
+                </ScrollView>
+
+                <!-- Download Progress -->
+                <VerticalStackLayout x:Name="ProgressContainer" IsVisible="False" Spacing="8" Padding="0">
+                    <ProgressBar x:Name="DownloadProgressBar" Progress="0" IsVisible="False" HeightRequest="6" />
+                    <Label x:Name="ProgressStatusLabel" TextColor="#666666" FontSize="12" 
+                           HorizontalOptions="Center" />
+                </VerticalStackLayout>
+
+                <!-- Action Buttons -->
+                <Grid x:Name="ButtonsContainer" ColumnDefinitions="*,*" ColumnSpacing="12" Margin="0,16,0,0">
+                    <Button Grid.Column="0" Text="Ignore" Command="{Binding IgnoreCommand}" 
+                            BackgroundColor="#DDDDDD" TextColor="#333333" CornerRadius="8" 
+                            FontAttributes="Bold" />
+                    <Button Grid.Column="1" Text="Update Now" Command="{Binding UpdateCommand}" 
+                            BackgroundColor="#4CAF50" TextColor="White" CornerRadius="8" 
+                            FontAttributes="Bold" />
+                </Grid>
+            </VerticalStackLayout>
+        </Frame>
+    </Grid>
+</ContentPage>

@@ -40,6 +40,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<IPlayerQueueService, PlayerQueueService>();
         builder.Services.AddSingleton<IQueueItemFactory, QueueItemFactory>();
         builder.Services.AddSingleton<ISettingsExportService, SettingsExportService>();
+        builder.Services.AddSingleton<IUpdateCheckService, UpdateCheckService>();
+        builder.Services.AddSingleton<IUpdateDownloadService, UpdateDownloadService>();
         builder.Services.AddTransient<YouTubeAuthPage>();
 #if ANDROID
         builder.Services.AddSingleton<IYouTubeCookieProvider, AndroidYouTubeCookieProvider>();
@@ -50,6 +52,7 @@ public static class MauiProgram
         builder.Services.AddTransient<RequestsPage>();
         builder.Services.AddTransient<PlayerPage>();
         builder.Services.AddTransient<SettingsPage>();
+        builder.Services.AddTransient<UpdatePopup>();
 
 #if DEBUG
         builder.Logging.AddDebug();

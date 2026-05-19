@@ -104,4 +104,10 @@
 		<PackageReference Include="YoutubeExplode.Converter" Version="6.6.0" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <MauiXaml Update="Pages\UpdatePopup.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	</ItemGroup>
+
 </Project>
