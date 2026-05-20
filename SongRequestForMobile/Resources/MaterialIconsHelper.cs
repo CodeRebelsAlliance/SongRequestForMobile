@@ -64,6 +64,7 @@ public static class MaterialIcons
     public const string FastRewind = "\ue062"; // Fast Rewind
     public const string Repeat = "\ue040"; // Repeat
     public const string RepeatOne = "\ue41e"; // Repeat One
+    public const string Lyrics = "\ue8c7"; // 🎵 Lyrics
 
     // Others
     public const string Home = "\ue88a"; // 🏠 Home

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Microsoft.Maui.Controls.Shapes;
+using Microsoft.Maui.Layouts;
 using Plugin.Maui.Audio;
 using SongRequestForMobile.Models;
 using SongRequestForMobile.Resources;
@@ -11,15 +12,20 @@ public sealed class PlayerPage : ContentPage
 {
     private readonly IPlayerQueueService _queueService;
     private readonly IThumbnailColorService _thumbnailColorService;
+    private readonly ILyricsDisplayService _lyricsDisplayService;
     private readonly ObservableCollection<PlayerQueueItem> _queueItems = new();
 
     // Main UI elements
     private readonly Grid _mainGrid;
-    private readonly BoxView _gradientBackgroundBox;
+    private readonly AbsoluteLayout _backgroundContainer;
+    private readonly BoxView _blackBackground;
+    private readonly Ellipse _accentCircle1;
+    private readonly Ellipse _accentCircle2;
     private readonly Label _titleLabel;
     private readonly Label _channelLabel;
     private readonly Label _statusLabel;
     private readonly Image _thumbnailImage;
+    private readonly Image _nextThumbnailImage;
     private readonly Border _heroBorder;
     private readonly Slider _progressSlider;
     private readonly Label _currentTimeLabel;
@@ -27,37 +33,86 @@ public sealed class PlayerPage : ContentPage
     private readonly Button _playPauseButton;
     private readonly Button _shuffleButton;
     private readonly Button _queueButton;
+    private readonly Button _lyricsButton;
 
-    // Queue popout
-    private readonly Frame _queuePopout;
+    // Queue panel (sliding from bottom)
+    private readonly Grid _queuePanel;
     private readonly CollectionView _queueCollectionView;
-    private double _originalQueueOpacity = 0;
+    private readonly ScrollView _queueScrollView;
+    private bool _queuePanelOpen = false;
+
+    // Lyrics panel (sliding from bottom)
+    private readonly Grid _lyricsPanel;
+    private readonly CollectionView _lyricsCollectionView;
+    private readonly ScrollView _lyricsScrollView;
+    private readonly StackLayout _lyricsLoadingContainer;
+    private bool _lyricsPanelOpen = false;
 
     private readonly IDispatcherTimer _timer;
+    private readonly IDispatcherTimer _animationTimer;
     private bool _isActive;
     private bool _updatingSlider;
-    private Color _gradientColor1 = Colors.SteelBlue;
-    private Color _gradientColor2 = Colors.Navy;
+    private Color _accentColor1 = Colors.SteelBlue;
+    private Color _accentColor2 = Colors.Navy;
+    private double _accentRotation1 = 0;
+    private double _accentRotation2 = 0;
+    private PlayerQueueItem? _previousItem = null;
 
-    public PlayerPage(IPlayerQueueService queueService, IThumbnailColorService thumbnailColorService)
+    public PlayerPage(IPlayerQueueService queueService, IThumbnailColorService thumbnailColorService, ILyricsDisplayService lyricsDisplayService)
     {
         _queueService = queueService;
         _thumbnailColorService = thumbnailColorService;
+        _lyricsDisplayService = lyricsDisplayService;
         _queueService.Updated += OnQueueUpdated;
+        _lyricsDisplayService.LyricsUpdated += OnLyricsUpdated;
+        _lyricsDisplayService.LoadingStateChanged += OnLyricsLoadingStateChanged;
+        _lyricsDisplayService.CurrentLineChanged += OnCurrentLyricsLineChanged;
 
         // Get theme colors
         var isDark = Application.Current?.RequestedTheme == AppTheme.Dark;
-        var res = Application.Current?.Resources;
-        var fg = isDark ? (res != null && res.ContainsKey("White") ? (Color)res["White"] : Colors.White) : (res != null && res.ContainsKey("Black") ? (Color)res["Black"] : Colors.Black);
-        var secondaryText = isDark ? (res != null && res.ContainsKey("Gray200") ? (Color)res["Gray200"] : Colors.Gray) : (res != null && res.ContainsKey("Gray500") ? (Color)res["Gray500"] : Colors.Gray);
+        var fg = isDark ? Colors.White : Colors.Black;
+        var secondaryText = isDark ? Colors.Gray : Colors.Gray;
 
-        // Build gradient background
-        _gradientBackgroundBox = new BoxView
+        // === BUILD BACKGROUND WITH ANIMATED ACCENT CIRCLES ===
+        _blackBackground = new BoxView
         {
-            BackgroundColor = _gradientColor1
+            BackgroundColor = Colors.Black
         };
 
-        // Thumbnail
+        // Animated accent circles
+        _accentCircle1 = new Ellipse
+        {
+            Fill = new SolidColorBrush(_accentColor1),
+            Opacity = 0.15,
+            WidthRequest = 300,
+            HeightRequest = 300
+        };
+
+        _accentCircle2 = new Ellipse
+        {
+            Fill = new SolidColorBrush(_accentColor2),
+            Opacity = 0.12,
+            WidthRequest = 250,
+            HeightRequest = 250
+        };
+
+        _backgroundContainer = new AbsoluteLayout
+        {
+            BackgroundColor = Colors.Black
+        };
+        _backgroundContainer.Add(_blackBackground);
+        AbsoluteLayout.SetLayoutBounds(_blackBackground, new Rect(0, 0, 1, 1));
+        AbsoluteLayout.SetLayoutFlags(_blackBackground, AbsoluteLayoutFlags.All);
+
+        _backgroundContainer.Add(_accentCircle1);
+        AbsoluteLayout.SetLayoutBounds(_accentCircle1, new Rect(0.5, 0.5, 0.6, 0.6));
+        AbsoluteLayout.SetLayoutFlags(_accentCircle1, AbsoluteLayoutFlags.PositionProportional);
+
+        _backgroundContainer.Add(_accentCircle2);
+        AbsoluteLayout.SetLayoutBounds(_accentCircle2, new Rect(0.3, 0.3, 0.5, 0.5));
+        AbsoluteLayout.SetLayoutFlags(_accentCircle2, AbsoluteLayoutFlags.PositionProportional);
+
+        // === BUILD THUMBNAIL WITH TRANSITIONS ===
         _thumbnailImage = new Image
         {
             HeightRequest = 280,
@@ -65,23 +120,39 @@ public sealed class PlayerPage : ContentPage
             Aspect = Aspect.AspectFill
         };
 
+        _nextThumbnailImage = new Image
+        {
+            HeightRequest = 280,
+            WidthRequest = 280,
+            Aspect = Aspect.AspectFill,
+            Opacity = 0,
+            IsVisible = false
+        };
+
         _heroBorder = new Border
         {
             StrokeShape = new RoundRectangle { CornerRadius = 24 },
             StrokeThickness = 0,
             Padding = 0,
-            Content = _thumbnailImage,
+            Content = new Grid
+            {
+                Children =
+                {
+                    _thumbnailImage,
+                    _nextThumbnailImage
+                }
+            },
             BackgroundColor = Colors.Transparent,
             Shadow = new Shadow
             {
                 Brush = Colors.Black,
                 Offset = new Point(0, 10),
-                Opacity = 0.3f,
-                Radius = 15
+                Opacity = 0.5f,
+                Radius = 20
             }
         };
 
-        // Title and channel
+        // === BUILD PLAYER CONTROLS ===
         _titleLabel = new Label
         {
             Text = "Nothing is playing yet.",
@@ -107,8 +178,6 @@ public sealed class PlayerPage : ContentPage
             FontAttributes = FontAttributes.Bold
         };
 
-        // Progress slider
-        var primary = res != null && res.ContainsKey("Primary") ? (Color)res["Primary"] : Colors.SteelBlue;
         _progressSlider = new Slider
         {
             Minimum = 0,
@@ -167,8 +236,8 @@ public sealed class PlayerPage : ContentPage
             WidthRequest = 80,
             HeightRequest = 80,
             CornerRadius = 40,
-            BackgroundColor = Colors.White,
-            TextColor = Colors.Black,
+            BackgroundColor = Color.FromArgb("#2E2E2E"),
+            TextColor = Colors.White,
             FontAttributes = FontAttributes.Bold,
             Command = new Command(async () => await OnPlayPauseClicked())
         };
@@ -182,9 +251,9 @@ public sealed class PlayerPage : ContentPage
             HeightRequest = 60,
             CornerRadius = 30,
             BackgroundColor = Colors.Transparent,
-            TextColor = Colors.White,
+            TextColor = Colors.LightGray,
             BorderWidth = 2,
-            BorderColor = Colors.White,
+            BorderColor = Colors.LightGray,
             Command = new Command(async () => await _queueService.PlayPreviousAsync())
         };
 
@@ -197,9 +266,9 @@ public sealed class PlayerPage : ContentPage
             HeightRequest = 60,
             CornerRadius = 30,
             BackgroundColor = Colors.Transparent,
-            TextColor = Colors.White,
+            TextColor = Colors.LightGray,
             BorderWidth = 2,
-            BorderColor = Colors.White,
+            BorderColor = Colors.LightGray,
             Command = new Command(async () => await _queueService.SkipNextAsync())
         };
 
@@ -212,9 +281,9 @@ public sealed class PlayerPage : ContentPage
             HeightRequest = 50,
             CornerRadius = 25,
             BackgroundColor = Colors.Transparent,
-            TextColor = Colors.White,
+            TextColor = Colors.LightGray,
             BorderWidth = 2,
-            BorderColor = Colors.White,
+            BorderColor = Colors.LightGray,
             Command = new Command(OnShuffleClicked)
         };
 
@@ -231,6 +300,21 @@ public sealed class PlayerPage : ContentPage
             BorderWidth = 2,
             BorderColor = Colors.White,
             Command = new Command(OnQueueButtonClicked)
+        };
+
+        _lyricsButton = new Button
+        {
+            Text = MaterialIcons.Lyrics,
+            FontFamily = "MaterialIcons",
+            FontSize = 24,
+            WidthRequest = 50,
+            HeightRequest = 50,
+            CornerRadius = 25,
+            BackgroundColor = Colors.Transparent,
+            TextColor = Colors.White,
+            BorderWidth = 2,
+            BorderColor = Colors.White,
+            Command = new Command(OnLyricsButtonClicked)
         };
 
         var transportControls = new HorizontalStackLayout
@@ -252,85 +336,12 @@ public sealed class PlayerPage : ContentPage
             Children =
             {
                 _shuffleButton,
+                _lyricsButton,
                 _queueButton
             }
         };
 
-        // Build queue popout
-        _queueCollectionView = new CollectionView
-        {
-            ItemsSource = _queueItems,
-            SelectionMode = SelectionMode.None,
-            EmptyView = new Label
-            {
-                Text = "Your queue is empty.",
-                HorizontalOptions = LayoutOptions.Center,
-                VerticalOptions = LayoutOptions.Center,
-                TextColor = Colors.Gray
-            }
-        };
-        _queueCollectionView.ItemTemplate = CreateQueueTemplate();
-
-        var queueHeader = new HorizontalStackLayout
-        {
-            Padding = 16,
-            Spacing = 12,
-            Children =
-            {
-                new Label
-                {
-                    Text = "Queue",
-                    FontSize = 18,
-                    FontAttributes = FontAttributes.Bold,
-                    VerticalOptions = LayoutOptions.Center
-                },
-                new Label
-                {
-                    Text = "0 items",
-                    FontSize = 12,
-                    TextColor = Colors.Gray,
-                    VerticalOptions = LayoutOptions.Center,
-                    HorizontalOptions = LayoutOptions.FillAndExpand
-                },
-                new Button
-                {
-                    Text = MaterialIcons.Close,
-                    FontFamily = "MaterialIcons",
-                    FontSize = 20,
-                    WidthRequest = 36,
-                    HeightRequest = 36,
-                    CornerRadius = 18,
-                    Padding = 0,
-                    BackgroundColor = Colors.Transparent,
-                    TextColor = Colors.Black,
-                    Command = new Command(OnCloseQueuePopout)
-                }
-            }
-        };
-
-        _queuePopout = new Frame
-        {
-            CornerRadius = 24,
-            HasShadow = true,
-            Padding = 0,
-            Margin = 0,
-            BorderColor = Colors.Transparent,
-            BackgroundColor = Colors.White,
-            Content = new VerticalStackLayout
-            {
-                Spacing = 0,
-                Children =
-                {
-                    queueHeader,
-                    new BoxView { HeightRequest = 1, Color = Colors.LightGray },
-                    _queueCollectionView
-                }
-            }
-        };
-        _queuePopout.IsVisible = false;
-        _queuePopout.Opacity = 0;
-
-        // Main content grid
+        // === BUILD MAIN CONTENT GRID ===
         _mainGrid = new Grid
         {
             RowDefinitions = new RowDefinitionCollection
@@ -359,24 +370,218 @@ public sealed class PlayerPage : ContentPage
         _mainGrid.Add(secondaryControls);
         Grid.SetRow(secondaryControls, 5);
 
-        // Create scrollable main content
         var mainContent = new ScrollView
         {
             Content = _mainGrid
         };
 
-        // Overlay grid with background + content + popout
-        var overlayGrid = new Grid();
-        overlayGrid.Add(_gradientBackgroundBox);
-        overlayGrid.Add(mainContent);
-        overlayGrid.Add(_queuePopout);
+        // === BUILD QUEUE PANEL (SLIDING FROM BOTTOM) ===
+        _queueCollectionView = new CollectionView
+        {
+            ItemsSource = _queueItems,
+            SelectionMode = SelectionMode.None,
+            EmptyView = new Label
+            {
+                Text = "Your queue is empty.",
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center,
+                TextColor = Colors.Gray
+            }
+        };
+        _queueCollectionView.ItemTemplate = CreateQueueTemplate();
 
-        Title = "Player";
-        Content = overlayGrid;
+        var queueHandleBar = new BoxView
+        {
+            WidthRequest = 40,
+            HeightRequest = 4,
+            CornerRadius = 2,
+            BackgroundColor = Colors.Gray,
+            Margin = new Thickness(0, 8, 0, 8),
+            HorizontalOptions = LayoutOptions.Center
+        };
+
+        var queueHeader = new VerticalStackLayout
+        {
+            Spacing = 0,
+            Padding = new Thickness(16, 0, 16, 0),
+            Children =
+            {
+                queueHandleBar,
+                new Label
+                {
+                    Text = "Queue",
+                    FontSize = 18,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = Colors.White,
+                    Margin = new Thickness(0, 8, 0, 8)
+                }
+            }
+        };
+
+        _queueScrollView = new ScrollView
+        {
+            Content = _queueCollectionView
+        };
+
+        _queuePanel = new Grid
+        {
+            RowDefinitions = new RowDefinitionCollection
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Star }
+            },
+            BackgroundColor = Color.FromArgb("#1E1E1E"),
+            Children =
+            {
+                queueHeader,
+                _queueScrollView
+            }
+        };
+        Grid.SetRow(_queueScrollView, 1);
+
+        // Add gesture recognizer to queue header for dragging
+        var queueDragGesture = new SwipeGestureRecognizer { Direction = SwipeDirection.Down };
+        queueDragGesture.Swiped += async (s, e) => await CloseQueuePanelAsync();
+        _queuePanel.GestureRecognizers.Add(queueDragGesture);
+
+        // === BUILD LYRICS PANEL (SLIDING FROM BOTTOM) ===
+        _lyricsCollectionView = new CollectionView
+        {
+            ItemsSource = new ObservableCollection<LyricsDisplayItem>(),
+            SelectionMode = SelectionMode.None,
+            EmptyView = new Label
+            {
+                Text = "Could not find any lyrics for this song",
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center,
+                TextColor = Colors.Gray,
+                FontSize = 14,
+                Padding = 20
+            }
+        };
+        _lyricsCollectionView.ItemTemplate = CreateLyricsTemplate();
+
+        _lyricsLoadingContainer = new StackLayout
+        {
+            Spacing = 10,
+            Padding = 20,
+            HorizontalOptions = LayoutOptions.Fill,
+            VerticalOptions = LayoutOptions.Fill,
+            Children =
+            {
+                new ActivityIndicator
+                {
+                    IsRunning = true,
+                    IsVisible = true,
+                    Color = Colors.White
+                },
+                new Label
+                {
+                    Text = "Loading lyrics...",
+                    HorizontalOptions = LayoutOptions.Center,
+                    TextColor = Colors.Gray
+                }
+            }
+        };
+
+        var lyricsHandleBar = new BoxView
+        {
+            WidthRequest = 40,
+            HeightRequest = 4,
+            CornerRadius = 2,
+            BackgroundColor = Colors.Gray,
+            Margin = new Thickness(0, 8, 0, 8),
+            HorizontalOptions = LayoutOptions.Center
+        };
+
+        var lyricsHeader = new VerticalStackLayout
+        {
+            Spacing = 0,
+            Padding = new Thickness(16, 0, 16, 0),
+            Children =
+            {
+                lyricsHandleBar,
+                new Label
+                {
+                    Text = "Lyrics",
+                    FontSize = 18,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = Colors.White,
+                    Margin = new Thickness(0, 8, 0, 8)
+                }
+            }
+        };
+
+        _lyricsScrollView = new ScrollView
+        {
+            Content = _lyricsLoadingContainer,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Never,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Default
+        };
+
+        _lyricsPanel = new Grid
+        {
+            RowDefinitions = new RowDefinitionCollection
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Star }
+            },
+            BackgroundColor = Color.FromArgb("#1E1E1E"),
+            Padding = 0,
+            ColumnSpacing = 0,
+            RowSpacing = 0,
+            Children =
+            {
+                lyricsHeader,
+                _lyricsScrollView
+            }
+        };
+        Grid.SetRow(_lyricsScrollView, 1);
+
+        // Add gesture recognizer to lyrics header for dragging
+        var lyricsDragGesture = new SwipeGestureRecognizer { Direction = SwipeDirection.Down };
+        lyricsDragGesture.Swiped += async (s, e) => await CloseLyricsPanelAsync();
+        _lyricsPanel.GestureRecognizers.Add(lyricsDragGesture);
+
+        // === LAYOUT EVERYTHING ===
+        var rootGrid = new Grid
+        {
+            RowDefinitions = new RowDefinitionCollection
+            {
+                new RowDefinition { Height = GridLength.Star },
+                new RowDefinition { Height = GridLength.Auto }
+            }
+        };
+        rootGrid.Add(_backgroundContainer);
+        rootGrid.Add(mainContent);
+
+        // Queue panel overlay - sits at bottom and slides up
+        var queueOverlay = new BoxView
+        {
+            BackgroundColor = new Color(0, 0, 0, 0.5f),
+            Opacity = 0
+        };
+
+        var mainOverlay = new Grid();
+        mainOverlay.Add(rootGrid);
+        mainOverlay.Add(queueOverlay);
+        mainOverlay.Add(_queuePanel);
+        mainOverlay.Add(_lyricsPanel);
+
+        // Initialize queue and lyrics panels off-screen at bottom
+        var screenHeight = DeviceDisplay.Current.MainDisplayInfo.Height / DeviceDisplay.Current.MainDisplayInfo.Density;
+        _queuePanel.TranslationY = screenHeight;
+        _lyricsPanel.TranslationY = screenHeight;
+
+        Content = mainOverlay;
 
         _timer = Dispatcher.CreateTimer();
         _timer.Interval = TimeSpan.FromMilliseconds(250);
         _timer.Tick += async (_, _) => await TickAsync();
+
+        _animationTimer = Dispatcher.CreateTimer();
+        _animationTimer.Interval = TimeSpan.FromMilliseconds(50);
+        _animationTimer.Tick += (_, _) => AnimateAccentCircles();
 
         RefreshUi();
     }
@@ -386,6 +591,7 @@ public sealed class PlayerPage : ContentPage
         base.OnAppearing();
         _isActive = true;
         _timer.Start();
+        _animationTimer.Start();
         await TickAsync();
         RefreshUi();
     }
@@ -395,12 +601,21 @@ public sealed class PlayerPage : ContentPage
         base.OnDisappearing();
         _isActive = false;
         _timer.Stop();
+        _animationTimer.Stop();
+    }
+
+    private void AnimateAccentCircles()
+    {
+        // Slowly rotate the accent circles
+        _accentRotation1 += 0.3;
+        _accentRotation2 -= 0.2;
+
+        _accentCircle1.Rotation = _accentRotation1 % 360;
+        _accentCircle2.Rotation = _accentRotation2 % 360;
     }
 
     private async void OnShuffleClicked()
     {
-        // Toggle shuffle on the queue service (if it supports it)
-        // For now, we'll just shuffle the current queue
         if (_queueItems.Count > 1)
         {
             var random = new Random();
@@ -419,10 +634,8 @@ public sealed class PlayerPage : ContentPage
                 _queueItems.Add(item);
             }
 
-            // Update the queue service
             await _queueService.ReplaceQueueAsync(items);
 
-            // Animate button feedback
             await _shuffleButton.ScaleTo(1.2, 100);
             await _shuffleButton.ScaleTo(1.0, 100);
         }
@@ -430,33 +643,84 @@ public sealed class PlayerPage : ContentPage
 
     private async void OnQueueButtonClicked()
     {
-        if (_queuePopout.IsVisible)
+        if (_queuePanelOpen)
         {
-            await CloseQueuePopoutAsync();
+            await CloseQueuePanelAsync();
         }
         else
         {
-            await OpenQueuePopoutAsync();
+            await OpenQueuePanelAsync();
         }
     }
 
-    private async void OnCloseQueuePopout()
+    private async Task OpenQueuePanelAsync()
     {
-        await CloseQueuePopoutAsync();
-    }
+        _queuePanelOpen = true;
+        var mainOverlay = Content as Grid;
+        if (mainOverlay != null && mainOverlay.Children.Count > 2)
+        {
+            var queueOverlay = mainOverlay.Children[1] as BoxView;
+            if (queueOverlay != null)
+            {
+                await queueOverlay.FadeTo(1, 300, Easing.CubicOut);
+            }
+        }
 
-    private async Task OpenQueuePopoutAsync()
-    {
-        _queuePopout.IsVisible = true;
-        await _queuePopout.FadeTo(1, 300, Easing.CubicOut);
+        var screenHeight = DeviceDisplay.Current.MainDisplayInfo.Height / DeviceDisplay.Current.MainDisplayInfo.Density;
+        _queuePanel.TranslationY = screenHeight;
+        await _queuePanel.TranslateTo(0, 0, 400, Easing.CubicOut);
         await _queueButton.RotateTo(180, 300);
     }
 
-    private async Task CloseQueuePopoutAsync()
+    private async Task CloseQueuePanelAsync()
     {
-        await _queuePopout.FadeTo(0, 300, Easing.CubicIn);
-        _queuePopout.IsVisible = false;
+        _queuePanelOpen = false;
+        var mainOverlay = Content as Grid;
+        if (mainOverlay != null && mainOverlay.Children.Count > 2)
+        {
+            var queueOverlay = mainOverlay.Children[1] as BoxView;
+            if (queueOverlay != null)
+            {
+                await queueOverlay.FadeTo(0, 300, Easing.CubicIn);
+            }
+        }
+
+        var screenHeight = DeviceDisplay.Current.MainDisplayInfo.Height / DeviceDisplay.Current.MainDisplayInfo.Density;
+        await _queuePanel.TranslateTo(0, screenHeight, 400, Easing.CubicIn);
         await _queueButton.RotateTo(0, 300);
+    }
+
+    private async void OnLyricsButtonClicked()
+    {
+        if (_lyricsPanelOpen)
+        {
+            await CloseLyricsPanelAsync();
+        }
+        else
+        {
+            await OpenLyricsPanelAsync();
+        }
+    }
+
+    private async Task OpenLyricsPanelAsync()
+    {
+        _lyricsPanelOpen = true;
+        var screenHeight = DeviceDisplay.Current.MainDisplayInfo.Height / DeviceDisplay.Current.MainDisplayInfo.Density;
+        _lyricsPanel.TranslationY = screenHeight;
+
+        // Ensure lyrics display is refreshed when opening the panel
+        RefreshLyricsDisplay();
+
+        await _lyricsPanel.TranslateTo(0, 0, 400, Easing.CubicOut);
+        await _lyricsButton.RotateTo(180, 300);
+    }
+
+    private async Task CloseLyricsPanelAsync()
+    {
+        _lyricsPanelOpen = false;
+        var screenHeight = DeviceDisplay.Current.MainDisplayInfo.Height / DeviceDisplay.Current.MainDisplayInfo.Density;
+        await _lyricsPanel.TranslateTo(0, screenHeight, 400, Easing.CubicIn);
+        await _lyricsButton.RotateTo(0, 300);
     }
 
     private async Task OnPlayPauseClicked()
@@ -468,9 +732,7 @@ public sealed class PlayerPage : ContentPage
     private async Task TickAsync()
     {
         if (!_isActive)
-        {
             return;
-        }
 
         await _queueService.TickAsync();
         MainThread.BeginInvokeOnMainThread(RefreshUi);
@@ -479,26 +741,24 @@ public sealed class PlayerPage : ContentPage
     private void OnQueueUpdated(object? sender, EventArgs e)
     {
         if (!_isActive)
-        {
             return;
-        }
 
         MainThread.BeginInvokeOnMainThread(RefreshUi);
     }
 
     private void RefreshUi()
     {
+        var current = _queueService.CurrentItem;
+        var isPlaying = _queueService.IsPlaying && !_queueService.IsPaused;
+
+        _playPauseButton.Text = isPlaying ? MaterialIcons.Pause : MaterialIcons.PlayArrow;
+
+        // Handle queue items
         _queueItems.Clear();
         foreach (var item in _queueService.Queue)
         {
             _queueItems.Add(item);
         }
-
-        var current = _queueService.CurrentItem;
-        var isPlaying = _queueService.IsPlaying && !_queueService.IsPaused;
-
-        // Animate play/pause button
-        _playPauseButton.Text = isPlaying ? MaterialIcons.Pause : MaterialIcons.PlayArrow;
 
         if (current == null)
         {
@@ -510,18 +770,27 @@ public sealed class PlayerPage : ContentPage
             _durationLabel.Text = "0:00";
             _progressSlider.Maximum = 1;
             _progressSlider.Value = 0;
-            UpdateGradient(Colors.SteelBlue, Colors.Navy);
+            UpdateAccentCircles(Colors.SteelBlue, Colors.Navy);
+            _lyricsDisplayService.ClearCache();
         }
         else
         {
-            // Load thumbnail with animation
-            if (string.IsNullOrWhiteSpace(current.Thumbnail))
+            // Fetch lyrics for current song
+            FetchLyricsForCurrentSongAsync();
+
+            // Animate thumbnail transition if song changed
+            if (_previousItem?.VideoId != current.VideoId)
             {
-                _thumbnailImage.Source = null;
+                AnimateThumbnailTransition(current);
+                _previousItem = current;
             }
             else
             {
-                _thumbnailImage.Source = ImageSource.FromUri(new Uri(current.Thumbnail));
+                // Just update the image
+                if (string.IsNullOrWhiteSpace(current.Thumbnail))
+                    _thumbnailImage.Source = null;
+                else
+                    _thumbnailImage.Source = ImageSource.FromUri(new Uri(current.Thumbnail));
             }
 
             _titleLabel.Text = current.Title;
@@ -538,43 +807,176 @@ public sealed class PlayerPage : ContentPage
             _progressSlider.Value = duration.TotalSeconds > 0 ? Math.Clamp(position.TotalSeconds / duration.TotalSeconds, 0, 1) : 0;
             _updatingSlider = false;
 
-            // Update gradient based on thumbnail
+            // Update accent circles
             var accentColor = _thumbnailColorService.GetAccentColor(current.AccentKey ?? current.Thumbnail ?? current.VideoId);
             var complementary = GetComplementaryColor(accentColor);
-            UpdateGradient(accentColor, complementary);
+            UpdateAccentCircles(accentColor, complementary);
+
+            // Update lyrics display
+            _lyricsDisplayService.UpdatePlaybackPosition(position);
+            RefreshLyricsDisplay();
         }
     }
 
-    private void UpdateGradient(Color color1, Color color2)
+    private async void FetchLyricsForCurrentSongAsync()
     {
-        // Animate gradient transition
-        MainThread.BeginInvokeOnMainThread(async () =>
+        var current = _queueService.CurrentItem;
+        if (current == null) return;
+
+        // Fetch lyrics for current song
+        await _lyricsDisplayService.FetchLyricsAsync(current);
+
+        // Prefetch next song if available
+        var queue = _queueService.Queue;
+        var currentIndex = queue.IndexOf(current);
+        if (currentIndex >= 0 && currentIndex + 1 < queue.Count)
         {
-            if (_gradientColor1 != color1 || _gradientColor2 != color2)
+            var nextItem = queue[currentIndex + 1];
+            _ = _lyricsDisplayService.PrefetchNextLyricsAsync(nextItem);
+        }
+    }
+
+    private void RefreshLyricsDisplay()
+    {
+        var lyricsCollection = _lyricsCollectionView.ItemsSource as ObservableCollection<LyricsDisplayItem>;
+        if (lyricsCollection == null)
+        {
+            lyricsCollection = new ObservableCollection<LyricsDisplayItem>();
+            _lyricsCollectionView.ItemsSource = lyricsCollection;
+        }
+
+        // Show loading indicator if still loading
+        if (_lyricsDisplayService.IsLoading)
+        {
+            if (_lyricsScrollView.Content != _lyricsLoadingContainer)
             {
-                // Create a blended animation between colors
-                const int steps = 30;
-                const int duration = 300;
-                const int stepDuration = duration / steps;
+                _lyricsScrollView.Content = _lyricsLoadingContainer;
+            }
+            return;
+        }
 
-                var startColor1 = _gradientColor1;
-                var startColor2 = _gradientColor2;
-                var targetColor1 = color1;
-                var targetColor2 = color2;
+        // Show collection view (whether it has content or not)
+        if (_lyricsScrollView.Content != _lyricsCollectionView)
+        {
+            _lyricsScrollView.Content = _lyricsCollectionView;
+        }
 
-                for (int i = 0; i <= steps; i++)
+        var lyrics = _lyricsDisplayService.CurrentLyrics;
+        var syncedLines = _lyricsDisplayService.CurrentSyncedLines;
+        var currentLineIdx = _lyricsDisplayService.CurrentLineIndex;
+
+        lyricsCollection.Clear();
+
+        if (lyrics == null || !lyrics.Found || syncedLines.Count == 0)
+        {
+            // Show empty state - will use EmptyView from CollectionView
+            return;
+        }
+
+        // Populate lyrics with indices
+        for (int i = 0; i < syncedLines.Count; i++)
+        {
+            var (time, text) = syncedLines[i];
+            lyricsCollection.Add(new LyricsDisplayItem { Index = i, Time = time, Text = text });
+        }
+
+        // Scroll to current line and highlight it
+        if (currentLineIdx >= 0 && currentLineIdx < syncedLines.Count)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                _lyricsCollectionView.ScrollTo(currentLineIdx, -1, ScrollToPosition.Center, true);
+
+                // Update styling for all items
+                for (int i = 0; i < lyricsCollection.Count; i++)
                 {
-                    var progress = i / (double)steps;
-                    _gradientColor1 = BlendColors(startColor1, targetColor1, progress);
-                    _gradientColor2 = BlendColors(startColor2, targetColor2, progress);
-
-                    _gradientBackgroundBox.BackgroundColor = _gradientColor1;
-
-                    if (i < steps)
+                    var item = lyricsCollection[i];
+                    if (i == currentLineIdx)
                     {
-                        await Task.Delay(stepDuration);
+                        // Highlight current line
+                        // Note: We'll update cell styling via a custom approach
                     }
                 }
+            });
+        }
+    }
+
+    private void OnLyricsUpdated(object? sender, EventArgs e)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            RefreshLyricsDisplay();
+        });
+    }
+
+    private void OnLyricsLoadingStateChanged(object? sender, EventArgs e)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            RefreshLyricsDisplay();
+        });
+    }
+
+    private void OnCurrentLyricsLineChanged(object? sender, EventArgs e)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            RefreshLyricsDisplay();
+        });
+    }
+
+    private async void AnimateThumbnailTransition(PlayerQueueItem current)
+    {
+        // Set next thumbnail
+        if (string.IsNullOrWhiteSpace(current.Thumbnail))
+            _nextThumbnailImage.Source = null;
+        else
+            _nextThumbnailImage.Source = ImageSource.FromUri(new Uri(current.Thumbnail));
+
+        var screenWidth = DeviceDisplay.Current.MainDisplayInfo.Width / DeviceDisplay.Current.MainDisplayInfo.Density;
+
+        _nextThumbnailImage.IsVisible = true;
+        _nextThumbnailImage.TranslationX = screenWidth;
+        _nextThumbnailImage.Opacity = 1;
+
+        // Animate current out to left, next in from right
+        await Task.WhenAll(
+            _thumbnailImage.TranslateTo(-screenWidth, 0, 400, Easing.CubicIn),
+            _nextThumbnailImage.TranslateTo(0, 0, 400, Easing.CubicOut)
+        );
+
+        // Swap images
+        _thumbnailImage.Source = _nextThumbnailImage.Source;
+        _thumbnailImage.TranslationX = 0;
+        _nextThumbnailImage.IsVisible = false;
+        _nextThumbnailImage.TranslationX = 0;
+    }
+
+    private void UpdateAccentCircles(Color color1, Color color2)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            const int steps = 20;
+            const int duration = 400;
+            const int stepDuration = duration / steps;
+
+            var startColor1 = _accentColor1;
+            var startColor2 = _accentColor2;
+
+            for (int i = 0; i <= steps; i++)
+            {
+                var progress = i / (double)steps;
+                var c1 = BlendColors(startColor1, color1, progress);
+                var c2 = BlendColors(startColor2, color2, progress);
+
+                _accentColor1 = c1;
+                _accentColor2 = c2;
+
+                _accentCircle1.Fill = new SolidColorBrush(c1);
+                _accentCircle2.Fill = new SolidColorBrush(c2);
+
+                if (i < steps)
+                    await Task.Delay(stepDuration);
             }
         });
     }
@@ -591,12 +993,10 @@ public sealed class PlayerPage : ContentPage
 
     private Color GetComplementaryColor(Color baseColor)
     {
-        // Extract RGB components and darken for a nice gradient
         var r = (int)(baseColor.Red * 255);
         var g = (int)(baseColor.Green * 255);
         var b = (int)(baseColor.Blue * 255);
 
-        // Create a darker version by reducing brightness
         var factor = 0.6;
         return Color.FromRgba((int)(r * factor), (int)(g * factor), (int)(b * factor), 255);
     }
@@ -604,18 +1004,49 @@ public sealed class PlayerPage : ContentPage
     private async void OnProgressChanged(object? sender, ValueChangedEventArgs e)
     {
         if (_updatingSlider)
-        {
             return;
-        }
 
         var duration = _queueService.Duration;
         if (duration <= TimeSpan.Zero)
-        {
             return;
-        }
 
         var position = TimeSpan.FromSeconds(duration.TotalSeconds * Math.Clamp(e.NewValue, 0, 1));
         await _queueService.SeekAsync(position);
+    }
+
+    private DataTemplate CreateLyricsTemplate()
+    {
+        return new DataTemplate(() =>
+        {
+            var lyricsContainer = new StackLayout
+            {
+                Padding = new Thickness(16, 12),
+                Spacing = 0
+            };
+
+            var lyricsLabel = new Label
+            {
+                LineBreakMode = LineBreakMode.WordWrap,
+                FontSize = 16,
+                TextColor = Colors.LightGray,
+                FontAttributes = FontAttributes.Bold
+            };
+            lyricsLabel.SetBinding(Label.TextProperty, "Text");
+
+            // Binding context for styling
+            lyricsLabel.BindingContextChanged += (s, e) =>
+            {
+                if (lyricsLabel.BindingContext is LyricsDisplayItem lyricsItem)
+                {
+                    var isCurrentLine = lyricsItem.Index == _lyricsDisplayService.CurrentLineIndex;
+                    lyricsLabel.TextColor = isCurrentLine ? Colors.White : Colors.LightGray;
+                    lyricsLabel.FontSize = isCurrentLine ? 20 : 16;
+                }
+            };
+
+            lyricsContainer.Children.Add(lyricsLabel);
+            return lyricsContainer;
+        });
     }
 
     private DataTemplate CreateQueueTemplate()
@@ -652,33 +1083,21 @@ public sealed class PlayerPage : ContentPage
                 Children = { title, channel }
             };
 
-            var dragHandle = new Label
-            {
-                Text = MaterialIcons.DragHandle,
-                FontFamily = "MaterialIcons",
-                FontSize = 18,
-                TextColor = Colors.Gray,
-                VerticalOptions = LayoutOptions.Center
-            };
-
             var contentGrid = new Grid
             {
                 ColumnDefinitions = new ColumnDefinitionCollection
                 {
-                    new ColumnDefinition { Width = 16 },
                     new ColumnDefinition { Width = 52 },
                     new ColumnDefinition { Width = GridLength.Star }
                 },
                 ColumnSpacing = 10,
                 Children =
                 {
-                    dragHandle,
                     thumbnail,
                     info
                 }
             };
-            Grid.SetColumn(thumbnail, 1);
-            Grid.SetColumn(info, 2);
+            Grid.SetColumn(info, 1);
 
             var card = new Border
             {
@@ -687,21 +1106,56 @@ public sealed class PlayerPage : ContentPage
                 Padding = 10,
                 Margin = new Thickness(10, 6, 10, 6),
                 Content = contentGrid,
-                BackgroundColor = Colors.White
+                BackgroundColor = Color.FromArgb("#2A2A2A")
             };
 
-            // Add long-press gesture
-            var longPressAction = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
-            longPressAction.Tapped += (s, e) =>
+            // Tap for quick actions
+            var tapGesture = new TapGestureRecognizer { NumberOfTapsRequired = 1 };
+            tapGesture.Tapped += (s, e) =>
             {
                 if (card.BindingContext is PlayerQueueItem item)
                 {
-                    OnQueueItemLongPressed(item);
+                    OnQueueItemTapped(item);
                 }
             };
-            card.GestureRecognizers.Add(longPressAction);
+            card.GestureRecognizers.Add(tapGesture);
 
-            // Update card appearance based on binding
+            // Pan gesture for drag detection
+            var panGesture = new PanGestureRecognizer();
+            var dragStartX = 0.0;
+            var dragStartY = 0.0;
+
+            panGesture.PanUpdated += (s, e) =>
+            {
+                if (e.StatusType == GestureStatus.Started)
+                {
+                    dragStartX = e.TotalX;
+                    dragStartY = e.TotalY;
+                }
+                else if (e.StatusType == GestureStatus.Running)
+                {
+                    // Vertical drag for reordering
+                    var deltaY = e.TotalY - dragStartY;
+
+                    if (Math.Abs(deltaY) > 30 && card.BindingContext is PlayerQueueItem item)
+                    {
+                        if (deltaY < 0)
+                        {
+                            // Dragged up - move down in queue
+                            _queueService.MoveDown(item);
+                        }
+                        else if (deltaY > 0)
+                        {
+                            // Dragged down - move up in queue
+                            _queueService.MoveUp(item);
+                        }
+                        dragStartY = e.TotalY;
+                    }
+                }
+            };
+            card.GestureRecognizers.Add(panGesture);
+
+            // Update card appearance
             card.BindingContextChanged += (_, _) =>
             {
                 if (card.BindingContext is PlayerQueueItem item)
@@ -715,7 +1169,7 @@ public sealed class PlayerPage : ContentPage
         });
     }
 
-    private async void OnQueueItemLongPressed(PlayerQueueItem item)
+    private async void OnQueueItemTapped(PlayerQueueItem item)
     {
         var action = await DisplayActionSheet(
             $"{item.Title}",
@@ -748,19 +1202,25 @@ public sealed class PlayerPage : ContentPage
     private static string FormatTime(TimeSpan time)
     {
         if (time < TimeSpan.Zero)
-        {
             return "0:00";
-        }
 
         var hours = (int)time.TotalHours;
         var minutes = time.Minutes;
         var seconds = time.Seconds;
 
         if (hours > 0)
-        {
             return $"{hours}:{minutes:D2}:{seconds:D2}";
-        }
 
         return $"{minutes}:{seconds:D2}";
     }
+}
+
+/// <summary>
+/// Represents a single line of lyrics for display in the collection view.
+/// </summary>
+internal class LyricsDisplayItem
+{
+    public int Index { get; set; }
+    public TimeSpan Time { get; set; }
+    public string Text { get; set; } = string.Empty;
 }

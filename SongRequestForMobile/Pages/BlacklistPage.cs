@@ -19,7 +19,6 @@ public sealed class BlacklistPage : ContentPage
         _syncService = syncService;
         _serverApiClient = serverApiClient;
         _appState = appState;
-        Title = "Blacklist";
 
         _collectionView = new CollectionView
         {
@@ -32,9 +31,9 @@ public sealed class BlacklistPage : ContentPage
 
                 var unblacklistButton = new Button
                 {
-                    Text = $"{MaterialIcons.Check} Unblacklist",
+                    Text = "Unblacklist",
                     FontFamily = "OpenSansRegular",
-                    BackgroundColor = Colors.SeaGreen,
+                    BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#3D7056") : Colors.SeaGreen,
                     TextColor = Colors.White
                 };
 

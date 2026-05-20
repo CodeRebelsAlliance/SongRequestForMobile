@@ -15,7 +15,6 @@ public sealed class ArchivePage : ContentPage
     public ArchivePage(IRequestSyncService syncService)
     {
         _syncService = syncService;
-        Title = "Archive";
 
         _collectionView = new CollectionView
         {
@@ -26,14 +25,14 @@ public sealed class ArchivePage : ContentPage
                 var title = new Label { FontAttributes = FontAttributes.Bold };
                 title.SetBinding(Label.TextProperty, nameof(RequestDisplayItem.Title));
 
-                var subtitle = new Label { FontSize = 12, TextColor = Colors.Gray };
+                var subtitle = new Label { FontSize = 12, TextColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Colors.LightGray : Colors.Gray };
                 subtitle.SetBinding(Label.TextProperty, nameof(RequestDisplayItem.Channel));
 
                 var deleteButton = new Button
                 {
-                    Text = $"{MaterialIcons.Delete} Delete",
+                    Text = "Delete",
                     FontFamily = "OpenSansRegular",
-                    BackgroundColor = Colors.IndianRed,
+                    BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#8B4545") : Colors.IndianRed,
                     TextColor = Colors.White
                 };
 
@@ -52,9 +51,9 @@ public sealed class ArchivePage : ContentPage
 
         var clearButton = new Button
         {
-            Text = $"{MaterialIcons.DeleteSweep} Clear All",
+            Text = "Clear All",
             FontFamily = "OpenSansRegular",
-            BackgroundColor = Colors.DarkGray,
+            BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#404040") : Colors.DarkGray,
             TextColor = Colors.White
         };
         clearButton.Clicked += async (_, _) => await ClearArchiveAsync();

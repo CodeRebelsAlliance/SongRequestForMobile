@@ -3,6 +3,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls.Shapes;
 using SongRequestForMobile.Resources;
 using SongRequestForMobile.Services;
+#if ANDROID
+using Android.OS;
+using Android.Content;
+#endif
 
 namespace SongRequestForMobile.Pages;
 
@@ -57,7 +61,6 @@ public sealed class SettingsPage : ContentPage
             ThumbColor = Colors.White
         };
 
-        Title = "Settings";
         Content = new ScrollView
         {
             Content = new VerticalStackLayout
@@ -75,6 +78,9 @@ public sealed class SettingsPage : ContentPage
                     new Frame
                     {
                         Padding = 12,
+                        BackgroundColor = Application.Current?.Resources.MergedDictionaries.FirstOrDefault()?.ContainsKey("FrameBackground") == true 
+                            ? (Color)Application.Current.Resources["FrameBackground"]
+                            : (Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#1E1E1E") : Colors.White),
                         Content = new VerticalStackLayout
                         {
                             Spacing = 10,
@@ -90,13 +96,13 @@ public sealed class SettingsPage : ContentPage
                                     {
                                         new Button
                                         {
-                                            Text = $"{MaterialIcons.Save} Save",
+                                            Text = "Save",
                                             FontFamily = "OpenSansRegular",
                                             Command = new Command(SaveSettings)
                                         },
                                         new Button
                                         {
-                                            Text = $"{MaterialIcons.Refresh} Test",
+                                            Text = "Test",
                                             FontFamily = "OpenSansRegular",
                                             Command = new Command(TestServer)
                                         }
@@ -108,6 +114,9 @@ public sealed class SettingsPage : ContentPage
                     new Frame
                     {
                         Padding = 12,
+                        BackgroundColor = Application.Current?.Resources.MergedDictionaries.FirstOrDefault()?.ContainsKey("FrameBackground") == true 
+                            ? (Color)Application.Current.Resources["FrameBackground"]
+                            : (Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#1E1E1E") : Colors.White),
                         Content = new VerticalStackLayout
                         {
                             Spacing = 10,
@@ -117,7 +126,7 @@ public sealed class SettingsPage : ContentPage
                                 _cookieStatusLabel,
                                 new Button
                                 {
-                                    Text = $"{MaterialIcons.Lock} Sign in / capture cookies",
+                                    Text = "Sign in / capture cookies",
                                     FontFamily = "OpenSansRegular",
                                     Command = new Command(OpenYoutubeAuth)
                                 }
@@ -131,6 +140,9 @@ public sealed class SettingsPage : ContentPage
                     new Frame
                     {
                         Padding = 12,
+                        BackgroundColor = Application.Current?.Resources.MergedDictionaries.FirstOrDefault()?.ContainsKey("FrameBackground") == true 
+                            ? (Color)Application.Current.Resources["FrameBackground"]
+                            : (Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#1E1E1E") : Colors.White),
                         Content = new VerticalStackLayout
                         {
                             Spacing = 10,
@@ -166,7 +178,7 @@ public sealed class SettingsPage : ContentPage
         {
             Text = "Automatically queue new songs as they arrive from the server.",
             FontSize = 12,
-            TextColor = Colors.Gray,
+            TextColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Colors.LightGray : Colors.Gray,
             LineBreakMode = LineBreakMode.WordWrap
         };
 
@@ -194,7 +206,7 @@ public sealed class SettingsPage : ContentPage
             StrokeThickness = 2,
             Padding = 12,
             Content = contentGrid,
-            BackgroundColor = Colors.Transparent
+            BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#1E1E1E") : Colors.White
         };
 
         // Bind border color to toggle state
@@ -219,6 +231,9 @@ public sealed class SettingsPage : ContentPage
         return new Frame
         {
             Padding = 12,
+            BackgroundColor = Application.Current?.Resources.MergedDictionaries.FirstOrDefault()?.ContainsKey("FrameBackground") == true 
+                ? (Color)Application.Current.Resources["FrameBackground"]
+                : (Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#1E1E1E") : Colors.White),
             Content = new VerticalStackLayout
             {
                 Spacing = 10,
@@ -229,7 +244,7 @@ public sealed class SettingsPage : ContentPage
                     {
                         Text = "Export all settings, cookies, and authentication to a file for easy deployment to multiple machines. Import settings from a previously exported file.",
                         FontSize = 12,
-                        TextColor = Colors.Gray,
+                        TextColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Colors.LightGray : Colors.Gray,
                         LineBreakMode = LineBreakMode.WordWrap
                     },
                     new HorizontalStackLayout
@@ -239,7 +254,7 @@ public sealed class SettingsPage : ContentPage
                         {
                             new Button
                             {
-                                Text = $"{MaterialIcons.Download} Export",
+                                Text = "Export",
                                 FontFamily = "OpenSansRegular",
                                 BackgroundColor = Colors.Green,
                                 TextColor = Colors.White,
@@ -248,7 +263,7 @@ public sealed class SettingsPage : ContentPage
                             },
                             new Button
                             {
-                                Text = $"{MaterialIcons.Upload} Import",
+                                Text = "Import",
                                 FontFamily = "OpenSansRegular",
                                 BackgroundColor = Colors.Blue,
                                 TextColor = Colors.White,
@@ -343,18 +358,58 @@ public sealed class SettingsPage : ContentPage
             // Export to JSON
             var json = await _exportService.ExportAsync(_appState.Settings, _appState.YoutubeCookies);
 
-            // Save to Documents/Downloads folder (user-accessible)
-            string filePath;
 #if ANDROID
-            // On Android, use Documents directory which is user-accessible
-            var documentsPath = System.IO.Path.Combine(FileSystem.Current.AppDataDirectory, "..", "Documents");
-            Directory.CreateDirectory(documentsPath);
-            filePath = System.IO.Path.Combine(documentsPath, "SongRequest_Export.json");
+            // For Android, save to a user-accessible location using the Downloads folder
+            await ExportSettingsAndroid(json);
 #else
-            // On other platforms, use Documents folder
+            // For other platforms, save to Documents folder
             var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            filePath = System.IO.Path.Combine(documentsPath, "SongRequest_Export.json");
+            var filePath = System.IO.Path.Combine(documentsPath, "SongRequest_Export.json");
+
+            Directory.CreateDirectory(documentsPath);
+            await File.WriteAllTextAsync(filePath, json);
+            _statusLabel.Text = $"✓ Settings exported to:\n{filePath}";
 #endif
+        }
+        catch (Exception ex)
+        {
+            _statusLabel.Text = $"Export failed: {ex.Message}";
+        }
+    }
+
+#if ANDROID
+    private async Task ExportSettingsAndroid(string json)
+    {
+        try
+        {
+            // Get the Downloads directory which is user-accessible
+            var context = Android.App.Application.Context;
+            var downloadsDir = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads);
+
+            if (downloadsDir == null || !downloadsDir.CanWrite())
+            {
+                // Fallback to app-specific external files directory
+                downloadsDir = context.GetExternalFilesDir(Android.OS.Environment.DirectoryDownloads);
+            }
+
+            if (downloadsDir == null)
+            {
+                // Last resort: use cache directory
+                downloadsDir = context.CacheDir;
+            }
+
+            if (downloadsDir == null)
+            {
+                _statusLabel.Text = "Error: Cannot access storage";
+                return;
+            }
+
+            if (!downloadsDir.Exists())
+            {
+                downloadsDir.Mkdirs();
+            }
+
+            var filePath = System.IO.Path.Combine(downloadsDir.AbsolutePath, "SongRequest_Export.json");
 
             await File.WriteAllTextAsync(filePath, json);
 
@@ -365,6 +420,7 @@ public sealed class SettingsPage : ContentPage
             _statusLabel.Text = $"Export failed: {ex.Message}";
         }
     }
+#endif
 
     private async void ImportSettings()
     {

@@ -74,7 +74,7 @@ public partial class MainPage : ContentPage
             var channel = new Label
             {
                 FontSize = 12,
-                TextColor = Colors.Gray,
+                TextColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Colors.LightGray : Colors.Gray,
                 LineBreakMode = LineBreakMode.TailTruncation
             };
             channel.SetBinding(Label.TextProperty, nameof(MusicSearchResult.Channel));
@@ -82,7 +82,7 @@ public partial class MainPage : ContentPage
             var videoId = new Label
             {
                 FontSize = 12,
-                TextColor = Colors.Gray
+                TextColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Colors.LightGray : Colors.Gray
             };
             videoId.SetBinding(Label.TextProperty, nameof(MusicSearchResult.VideoId));
 
@@ -95,6 +95,7 @@ public partial class MainPage : ContentPage
                 StrokeThickness = 1,
                 Padding = 10,
                 Margin = new Thickness(0, 0, 0, 10),
+                BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#2A2A2A") : Colors.White,
                 Content = new Grid
                 {
                     ColumnDefinitions = new ColumnDefinitionCollection
@@ -162,6 +163,7 @@ public partial class MainPage : ContentPage
                     new Frame
                     {
                         Padding = 12,
+                        BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#1E1E1E") : Colors.White,
                         Content = new VerticalStackLayout
                         {
                             Spacing = 10,
@@ -171,7 +173,7 @@ public partial class MainPage : ContentPage
                                 _searchQueryEntry,
                                 new Button
                                 {
-                                    Text = $"{MaterialIcons.Search} Search",
+                                    Text = "Search",
                                     FontFamily = "OpenSansRegular",
                                     Command = new Command(async () => await SearchAsync())
                                 },
@@ -182,6 +184,7 @@ public partial class MainPage : ContentPage
                     new Frame
                     {
                         Padding = 12,
+                        BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#1E1E1E") : Colors.White,
                         Content = new VerticalStackLayout
                         {
                             Spacing = 10,
@@ -203,6 +206,7 @@ public partial class MainPage : ContentPage
                     new Frame
                     {
                         Padding = 12,
+                        BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#1E1E1E") : Colors.White,
                         Content = new VerticalStackLayout
                         {
                             Spacing = 10,
@@ -216,6 +220,7 @@ public partial class MainPage : ContentPage
                     new Frame
                     {
                         Padding = 12,
+                        BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#1E1E1E") : Colors.White,
                         Content = new VerticalStackLayout
                         {
                             Spacing = 10,
@@ -224,7 +229,7 @@ public partial class MainPage : ContentPage
                                 new Label { Text = "Submit", FontAttributes = FontAttributes.Bold },
                                 new Button
                                 {
-                                    Text = $"{MaterialIcons.Send} Send request",
+                                    Text = "Send request",
                                     FontFamily = "OpenSansRegular",
                                     Command = new Command(async () => await OnSendClicked())
                                 },

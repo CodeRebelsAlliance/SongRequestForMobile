@@ -93,8 +93,15 @@ namespace SongRequestForMobile
 
         public LyricsService(HttpClient? httpClient = null)
         {
-            _http = httpClient ?? new HttpClient();
-            _http.Timeout = TimeSpan.FromSeconds(30);
+            if (httpClient != null)
+            {
+                _http = httpClient;
+            }
+            else
+            {
+                _http = new HttpClient();
+                _http.Timeout = TimeSpan.FromSeconds(30);
+            }
         }
 
         /// <summary>

@@ -5,28 +5,57 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:local="clr-namespace:SongRequestForMobile"
     xmlns:pages="clr-namespace:SongRequestForMobile.Pages"
-    Title="SongRequestForMobile">
+    Title="SongRequestForMobile"
+    Shell.NavBarIsVisible="False">
 
     <TabBar>
         <ShellContent
             Title="Add"
             ContentTemplate="{DataTemplate local:MainPage}"
-            Route="AddPage" />
+            Route="AddPage">
+            <Shell.Icon>
+                <FontImageSource 
+                    FontFamily="MaterialIcons"
+                    Glyph="&#xe145;"
+                    Color="{AppThemeBinding Light={StaticResource Black}, Dark={StaticResource White}}" />
+            </Shell.Icon>
+        </ShellContent>
 
         <ShellContent
             Title="Requests"
             ContentTemplate="{DataTemplate pages:RequestsPage}"
-            Route="RequestsPage" />
+            Route="RequestsPage">
+            <Shell.Icon>
+                <FontImageSource 
+                    FontFamily="MaterialIcons"
+                    Glyph="&#xe896;"
+                    Color="{AppThemeBinding Light={StaticResource Black}, Dark={StaticResource White}}" />
+            </Shell.Icon>
+        </ShellContent>
 
         <ShellContent
             Title="Player"
             ContentTemplate="{DataTemplate pages:PlayerPage}"
-            Route="PlayerPage" />
+            Route="PlayerPage">
+            <Shell.Icon>
+                <FontImageSource 
+                    FontFamily="MaterialIcons"
+                    Glyph="&#xe037;"
+                    Color="{AppThemeBinding Light={StaticResource Black}, Dark={StaticResource White}}" />
+            </Shell.Icon>
+        </ShellContent>
 
         <ShellContent
             Title="Settings"
             ContentTemplate="{DataTemplate pages:SettingsPage}"
-            Route="SettingsPage" />
+            Route="SettingsPage">
+            <Shell.Icon>
+                <FontImageSource 
+                    FontFamily="MaterialIcons"
+                    Glyph="&#xe8b8;"
+                    Color="{AppThemeBinding Light={StaticResource Black}, Dark={StaticResource White}}" />
+            </Shell.Icon>
+        </ShellContent>
     </TabBar>
 
 </Shell>

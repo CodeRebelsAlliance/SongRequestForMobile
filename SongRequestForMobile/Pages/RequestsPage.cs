@@ -43,7 +43,7 @@ public sealed class RequestsPage : ContentPage
         {
             StrokeShape = new RoundRectangle { CornerRadius = 14 },
             Padding = new Thickness(12, 8),
-            BackgroundColor = Colors.Gray,
+            BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#404040") : Colors.Gray,
             Content = _badgeLabel,
             HorizontalOptions = LayoutOptions.Start
         };
@@ -52,7 +52,7 @@ public sealed class RequestsPage : ContentPage
         {
             Text = "Refreshing every 30 seconds while authorized.",
             FontSize = 12,
-            TextColor = Colors.Gray
+            TextColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Colors.LightGray : Colors.Gray
         };
 
         _collectionView = new CollectionView
@@ -68,7 +68,7 @@ public sealed class RequestsPage : ContentPage
                         Text = "No requests cached yet.",
                         HorizontalOptions = LayoutOptions.Center,
                         VerticalOptions = LayoutOptions.Center,
-                        TextColor = Colors.Gray
+                        TextColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Colors.LightGray : Colors.Gray
                     }
                 }
             }
@@ -79,16 +79,14 @@ public sealed class RequestsPage : ContentPage
         _timer.Interval = TimeSpan.FromSeconds(30);
         _timer.Tick += async (_, _) => await RefreshAsync();
 
-        Title = "Requests";
-
         // navigation buttons to auxiliary pages (Archive / Blacklist)
         var navRow = new HorizontalStackLayout
         {
             Spacing = 8,
             Children =
             {
-                new Button { Text = "Archive", BackgroundColor = Colors.LightGray, Command = new Command(async () => await Navigation.PushAsync(new ArchivePage(_requestSyncService))) },
-                new Button { Text = "Blacklist", BackgroundColor = Colors.LightGray, Command = new Command(async () => await Navigation.PushAsync(new BlacklistPage(_requestSyncService, _serverApiClient, _appState))) }
+                new Button { Text = "Archive", BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#404040") : Colors.LightGray, Command = new Command(async () => await Navigation.PushAsync(new ArchivePage(_requestSyncService))) },
+                new Button { Text = "Blacklist", BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#404040") : Colors.LightGray, Command = new Command(async () => await Navigation.PushAsync(new BlacklistPage(_requestSyncService, _serverApiClient, _appState))) }
             }
         };
 
@@ -208,7 +206,7 @@ public sealed class RequestsPage : ContentPage
             var channel = new Label
             {
                 FontSize = 12,
-                TextColor = Colors.Gray,
+                TextColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Colors.LightGray : Colors.Gray,
                 LineBreakMode = LineBreakMode.TailTruncation
             };
             channel.SetBinding(Label.TextProperty, nameof(RequestDisplayItem.Channel));
@@ -270,7 +268,7 @@ public sealed class RequestsPage : ContentPage
                 {
                     var accent = AccentFrom(item.Thumbnail ?? item.VideoId);
                     border.Stroke = accent;
-                    border.BackgroundColor = Colors.White;
+                    border.BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#2A2A2A") : Colors.White;
                 }
             };
 
