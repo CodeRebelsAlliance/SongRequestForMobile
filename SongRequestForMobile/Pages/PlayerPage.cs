@@ -523,6 +523,7 @@ public sealed class PlayerPage : ContentPage
         _lyricsCollectionView.ZIndex = 0;
         _lyricsLoadingContainer.ZIndex = 1;
         _lyricsCollectionView.IsVisible = true;
+        // Start hidden; loading UI is shown only when IsLoading is raised by lyrics fetch.
         _lyricsLoadingContainer.IsVisible = false;
 
         _lyricsPanel = new Grid
