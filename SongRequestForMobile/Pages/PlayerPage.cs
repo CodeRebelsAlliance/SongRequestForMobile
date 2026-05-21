@@ -833,6 +833,9 @@ public sealed class PlayerPage : ContentPage
         // Fetch lyrics for current song
         await _lyricsDisplayService.FetchLyricsAsync(current);
 
+        // Ensure UI is refreshed immediately after fetch
+        RefreshLyricsDisplay();
+
         // Prefetch next song if available
         var queue = _queueService.Queue;
         var currentIndex = queue.IndexOf(current);
@@ -869,38 +872,64 @@ public sealed class PlayerPage : ContentPage
 
         lyricsCollection.Clear();
 
-        if (lyrics == null || !lyrics.Found || syncedLines.Count == 0)
+        // If no lyrics found at all, show empty state
+        if (lyrics == null || !lyrics.Found)
         {
-            // Show empty state - will use EmptyView from CollectionView
             return;
         }
 
-        // Populate lyrics with indices
-        for (int i = 0; i < syncedLines.Count; i++)
+        // If we have synced lyrics, use those
+        if (syncedLines != null && syncedLines.Count > 0)
         {
-            var (time, text) = syncedLines[i];
-            lyricsCollection.Add(new LyricsDisplayItem { Index = i, Time = time, Text = text });
-        }
-
-        // Scroll to current line and highlight it
-        if (currentLineIdx >= 0 && currentLineIdx < syncedLines.Count)
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
+            // Populate lyrics with indices
+            for (int i = 0; i < syncedLines.Count; i++)
             {
-                _lyricsCollectionView.ScrollTo(currentLineIdx, -1, ScrollToPosition.Center, true);
+                var (time, text) = syncedLines[i];
+                lyricsCollection.Add(new LyricsDisplayItem { Index = i, Time = time, Text = text });
+            }
 
-                // Update styling for all items
-                for (int i = 0; i < lyricsCollection.Count; i++)
+            // Scroll to current line and highlight it
+            if (currentLineIdx >= 0 && currentLineIdx < syncedLines.Count)
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    var item = lyricsCollection[i];
-                    if (i == currentLineIdx)
+                    _lyricsCollectionView.ScrollTo(currentLineIdx, -1, ScrollToPosition.Center, true);
+
+                    // Update styling for all items
+                    for (int i = 0; i < lyricsCollection.Count; i++)
                     {
-                        // Highlight current line
-                        // Note: We'll update cell styling via a custom approach
+                        var item = lyricsCollection[i];
+                        if (i == currentLineIdx)
+                        {
+                            // Highlight current line
+                        }
                     }
-                }
-            });
+                });
+            }
+            return;
         }
+
+        // Fallback: if only plain lyrics available, display them line by line
+        if (!string.IsNullOrWhiteSpace(lyrics.PlainLyrics))
+        {
+            var plainLines = lyrics.PlainLyrics.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < plainLines.Length; i++)
+            {
+                var line = plainLines[i].Trim();
+                if (string.IsNullOrEmpty(line) && i < plainLines.Length - 1)
+                {
+                    // Add empty line for visual separation
+                    lyricsCollection.Add(new LyricsDisplayItem { Index = i, Time = TimeSpan.Zero, Text = " " });
+                }
+                else
+                {
+                    lyricsCollection.Add(new LyricsDisplayItem { Index = i, Time = TimeSpan.Zero, Text = line });
+                }
+            }
+            return;
+        }
+
+        // If no lyrics at all, the empty view will show
     }
 
     private void OnLyricsUpdated(object? sender, EventArgs e)
