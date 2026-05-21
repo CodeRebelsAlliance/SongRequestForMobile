@@ -520,6 +520,9 @@ public sealed class PlayerPage : ContentPage
                 _lyricsLoadingContainer
             }
         };
+        _lyricsCollectionView.ZIndex = 0;
+        _lyricsLoadingContainer.ZIndex = 1;
+        _lyricsCollectionView.IsVisible = true;
         _lyricsLoadingContainer.IsVisible = false;
 
         _lyricsPanel = new Grid
