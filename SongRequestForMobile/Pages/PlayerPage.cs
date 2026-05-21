@@ -44,7 +44,7 @@ public sealed class PlayerPage : ContentPage
     // Lyrics panel (sliding from bottom)
     private readonly Grid _lyricsPanel;
     private readonly CollectionView _lyricsCollectionView;
-    private readonly ScrollView _lyricsScrollView;
+    private readonly Grid _lyricsContentContainer;
     private readonly StackLayout _lyricsLoadingContainer;
     private bool _lyricsPanelOpen = false;
 
@@ -512,12 +512,15 @@ public sealed class PlayerPage : ContentPage
             }
         };
 
-        _lyricsScrollView = new ScrollView
+        _lyricsContentContainer = new Grid
         {
-            Content = _lyricsLoadingContainer,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Never,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Default
+            Children =
+            {
+                _lyricsCollectionView,
+                _lyricsLoadingContainer
+            }
         };
+        _lyricsLoadingContainer.IsVisible = false;
 
         _lyricsPanel = new Grid
         {
@@ -533,10 +536,10 @@ public sealed class PlayerPage : ContentPage
             Children =
             {
                 lyricsHeader,
-                _lyricsScrollView
+                _lyricsContentContainer
             }
         };
-        Grid.SetRow(_lyricsScrollView, 1);
+        Grid.SetRow(_lyricsContentContainer, 1);
 
         // Add gesture recognizer to lyrics header for dragging
         var lyricsDragGesture = new SwipeGestureRecognizer { Direction = SwipeDirection.Down };
@@ -848,18 +851,13 @@ public sealed class PlayerPage : ContentPage
         // Show loading indicator if still loading
         if (_lyricsDisplayService.IsLoading)
         {
-            if (_lyricsScrollView.Content != _lyricsLoadingContainer)
-            {
-                _lyricsScrollView.Content = _lyricsLoadingContainer;
-            }
+            _lyricsLoadingContainer.IsVisible = true;
+            _lyricsCollectionView.IsVisible = false;
             return;
         }
 
-        // Show collection view (whether it has content or not)
-        if (_lyricsScrollView.Content != _lyricsCollectionView)
-        {
-            _lyricsScrollView.Content = _lyricsCollectionView;
-        }
+        _lyricsLoadingContainer.IsVisible = false;
+        _lyricsCollectionView.IsVisible = true;
 
         var lyrics = _lyricsDisplayService.CurrentLyrics;
         var syncedLines = _lyricsDisplayService.CurrentSyncedLines;
