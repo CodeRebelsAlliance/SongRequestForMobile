@@ -37,12 +37,6 @@ namespace SongRequestForMobile
         {
             var rawArtist = (song?.Artist ?? string.Empty).Replace(" - Topic", string.Empty).Trim();
             var rawTitle = (song?.Title ?? string.Empty).Trim();
-            var isSentIn = IsSentInSong(song?.songPath);
-
-            if (!isSentIn)
-            {
-                return new LyricsQuery(rawArtist, rawTitle, false);
-            }
 
             string derivedArtist = rawArtist;
             string derivedTitle = CleanTitle(rawTitle);
@@ -91,22 +85,6 @@ namespace SongRequestForMobile
             cleaned = TrailingNoiseRegex.Replace(cleaned, string.Empty);
             cleaned = WhitespaceRegex.Replace(cleaned, " ");
             return cleaned.Trim('-', '–', '—', '|', ':', ' ');
-        }
-
-        private static bool IsSentInSong(string? songPath)
-        {
-            if (string.IsNullOrWhiteSpace(songPath)) return false;
-
-            try
-            {
-                var fullSongPath = Path.GetFullPath(songPath);
-                var fullDownloadPath = Path.GetFullPath(Path.Combine(FileSystem.AppDataDirectory, "downloads"));
-                return fullSongPath.StartsWith(fullDownloadPath, StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
         }
     }
 }

@@ -11,6 +11,7 @@ public sealed class RequestDisplayItem
     public string Thumbnail { get; set; } = string.Empty;
     public string LocalFilePath { get; set; } = string.Empty;
     public bool IsDownloading { get; set; }
+    public TimeSpan Duration { get; set; } = TimeSpan.Zero;
     public bool IsCached => !string.IsNullOrWhiteSpace(LocalFilePath) && File.Exists(LocalFilePath);
 
     // True when the server currently returns this request in the live database

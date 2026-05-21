@@ -92,10 +92,16 @@ public class LyricsDisplayService : ILyricsDisplayService
         IsLoading = true;
         try
         {
+            // Create a Song object from the PlayerQueueItem to use the normalizer
+            var song = new Song(item.Title, item.Channel, null, item.Duration, string.Empty);
+
+            // Use LyricsQueryNormalizer to properly clean the artist and title
+            var normalizedQuery = LyricsQueryNormalizer.Build(song);
+
             var result = await _lyricsService.GetLyricsAsync(
-                item.Channel,
-                item.Title,
-                TimeSpan.FromSeconds(0), // We don't have duration readily available
+                normalizedQuery.Artist,
+                normalizedQuery.Title,
+                item.Duration,  // Use actual song duration instead of zero
                 null,
                 ct
             ).ConfigureAwait(false);
@@ -120,10 +126,16 @@ public class LyricsDisplayService : ILyricsDisplayService
 
         try
         {
+            // Create a Song object from the PlayerQueueItem to use the normalizer
+            var song = new Song(nextItem.Title, nextItem.Channel, null, nextItem.Duration, string.Empty);
+
+            // Use LyricsQueryNormalizer to properly clean the artist and title
+            var normalizedQuery = LyricsQueryNormalizer.Build(song);
+
             var result = await _lyricsService.GetCachedLyricsAsync(
-                nextItem.Channel,
-                nextItem.Title,
-                TimeSpan.FromSeconds(0),
+                normalizedQuery.Artist,
+                normalizedQuery.Title,
+                nextItem.Duration,  // Use actual song duration instead of zero
                 null,
                 ct
             ).ConfigureAwait(false);
@@ -138,7 +150,6 @@ public class LyricsDisplayService : ILyricsDisplayService
             // Silently fail on prefetch
         }
     }
-
     public void UpdatePlaybackPosition(TimeSpan currentPosition)
     {
         if (CurrentSyncedLines.Count == 0)

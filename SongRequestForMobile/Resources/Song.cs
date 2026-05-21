@@ -6,7 +6,7 @@ namespace SongRequestForMobile
     {
         public string Title { get; set; }
         public string Artist { get; set; }
-        public Image thumbnail { get; set; }
+        public Image? thumbnail { get; set; }
         public string length { get; set; }
         public TimeSpan Duration { get; set; }
         public string songPath { get; set; }
@@ -18,7 +18,7 @@ namespace SongRequestForMobile
         // Loudness in LUFS for volume normalization (-1 means not calculated)
         public double PerceivedLoudness { get; set; } = -1;
 
-        public Song(string title, string artist, Image thumbnail, string length, string songPath)
+        public Song(string title, string artist, Image? thumbnail, string length, string songPath)
         {
             Title = title;
             Artist = artist;
@@ -30,7 +30,7 @@ namespace SongRequestForMobile
             EstimatedStartDisplay = "00:00";
         }
 
-        public Song(string title, string artist, Image thumbnail, TimeSpan duration, string songPath)
+        public Song(string title, string artist, Image? thumbnail, TimeSpan duration, string songPath)
         {
             Title = title;
             Artist = artist;

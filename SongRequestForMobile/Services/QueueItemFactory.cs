@@ -18,6 +18,7 @@ public sealed class QueueItemFactory : IQueueItemFactory
         LocalFilePath = request.LocalFilePath,
         Message = request.Message,
         Time = request.Time,
-        AccentKey = request.Thumbnail
+        AccentKey = request.Thumbnail,
+        Duration = request.Duration
     };
 }

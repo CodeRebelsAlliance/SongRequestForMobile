@@ -10,4 +10,5 @@ public sealed class PlayerQueueItem
     public string Message { get; set; } = string.Empty;
     public string Time { get; set; } = string.Empty;
     public string AccentKey { get; set; } = string.Empty;
+    public TimeSpan Duration { get; set; } = TimeSpan.Zero;
 }

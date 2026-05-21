@@ -250,6 +250,7 @@ public sealed class RequestSyncService : IRequestSyncService
                     var metadata = await youtubeService.GetVideoMetadataAsync($"https://www.youtube.com/watch?v={row.VideoId}").ConfigureAwait(false);
                     item.Title = metadata.Title;
                     item.Channel = metadata.Creator;
+                    item.Duration = metadata.Length;
                     item.Thumbnail = await youtubeService.GetThumbnailUrlAsync($"https://www.youtube.com/watch?v={row.VideoId}").ConfigureAwait(false);
                     await File.WriteAllTextAsync(metadataPath, JsonSerializer.Serialize(item, JsonOptions), cancellationToken).ConfigureAwait(false);
                 }
