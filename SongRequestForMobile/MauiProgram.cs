@@ -42,10 +42,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<ISettingsExportService, SettingsExportService>();
         builder.Services.AddSingleton<IUpdateCheckService, UpdateCheckService>();
         builder.Services.AddSingleton<IUpdateDownloadService, UpdateDownloadService>();
-        builder.Services.AddSingleton(sp =>
-        {
-            return new LyricsService(sp.GetRequiredService<HttpClient>());
-        });
+        builder.Services.AddSingleton(_ => new LyricsService());
         builder.Services.AddSingleton<ILyricsDisplayService, LyricsDisplayService>();
         builder.Services.AddTransient<YouTubeAuthPage>();
 #if ANDROID
