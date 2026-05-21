@@ -44,10 +44,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IUpdateDownloadService, UpdateDownloadService>();
         builder.Services.AddSingleton(sp =>
         {
-            var lyricsClient = new HttpClient(new HttpClientHandler
-            {
-                AllowAutoRedirect = true
-            });
+            var lyricsClient = new HttpClient();
             lyricsClient.Timeout = TimeSpan.FromSeconds(30);
             return new LyricsService(lyricsClient);
         });
