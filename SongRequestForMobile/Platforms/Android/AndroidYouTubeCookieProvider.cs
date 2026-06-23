@@ -4,15 +4,11 @@ namespace SongRequestForMobile.Services;
 
 public sealed class AndroidYouTubeCookieProvider : IYouTubeCookieProvider
 {
-    public Task<IReadOnlyList<System.Net.Cookie>> CaptureCookiesAsync(string loginUrl, Func<string?, Task<bool>> isReadyAsync, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<System.Net.Cookie>> CaptureCookiesAsync(Microsoft.Maui.Controls.WebView webView, string currentUrl, CancellationToken cancellationToken = default)
     {
-        var uri = Uri.TryCreate(loginUrl, UriKind.Absolute, out var parsed)
-            ? parsed
-            : new Uri("https://www.youtube.com/");
-
-        var host = uri.Host;
+        var host = TryGetHost(currentUrl);
         var cookieManager = CookieManager.Instance;
-        var cookieHeader = cookieManager.GetCookie($"{uri.Scheme}://{host}");
+        var cookieHeader = cookieManager.GetCookie($"https://{host}");
 
         if (string.IsNullOrWhiteSpace(cookieHeader))
         {
@@ -42,5 +38,12 @@ public sealed class AndroidYouTubeCookieProvider : IYouTubeCookieProvider
 
             yield return new System.Net.Cookie(name, value, "/", host);
         }
+    }
+
+    private static string TryGetHost(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return uri.Host;
+        return "youtube.com";
     }
 }

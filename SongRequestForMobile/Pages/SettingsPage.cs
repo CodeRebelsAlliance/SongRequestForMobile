@@ -23,8 +23,11 @@ public sealed class SettingsPage : ContentPage
     private readonly Entry _serverBaseUrlEntry;
     private readonly Entry _bearerTokenEntry;
     private readonly Switch _autopilotToggle;
+    private readonly IDownloadLogService _logService;
+    private readonly ListView _logListView;
+    private bool _logExpanded;
 
-    public SettingsPage(AppState appState, IAppSettingsStore settingsStore, IYouTubeCookieStore cookieStore, YouTubeSession youtubeSession, ServerApiClient serverApiClient, ISettingsExportService exportService)
+    public SettingsPage(AppState appState, IAppSettingsStore settingsStore, IYouTubeCookieStore cookieStore, YouTubeSession youtubeSession, ServerApiClient serverApiClient, ISettingsExportService exportService, IDownloadLogService logService)
     {
         _appState = appState;
         _settingsStore = settingsStore;
@@ -32,6 +35,28 @@ public sealed class SettingsPage : ContentPage
         _youtubeSession = youtubeSession;
         _serverApiClient = serverApiClient;
         _exportService = exportService;
+
+        _logService = logService;
+
+        _logListView = new ListView
+        {
+            ItemsSource = _logService.Entries,
+            HasUnevenRows = true,
+            HeightRequest = 300,
+            BackgroundColor = Color.FromArgb("#0D0D0D"),
+            ItemTemplate = new DataTemplate(() =>
+            {
+                var label = new Label
+                {
+                    FontSize = 11,
+                    FontFamily = "Consolas",
+                    TextColor = Color.FromArgb("#00FF00"),
+                    Padding = new Thickness(4, 1)
+                };
+                label.SetBinding(Label.TextProperty, ".");
+                return new ViewCell { View = label };
+            })
+        };
 
         _cookieStatusLabel = new Label
         {
@@ -152,7 +177,8 @@ public sealed class SettingsPage : ContentPage
                                 _statusLabel
                             }
                         }
-                    }
+                    },
+                    CreateDebugConsoleSection()
                 }
             }
         };
@@ -469,6 +495,80 @@ public sealed class SettingsPage : ContentPage
         {
             _statusLabel.Text = $"Import failed: {ex.Message}";
         }
+    }
+
+    private Frame CreateDebugConsoleSection()
+    {
+        var toggleButton = new Button
+        {
+            Text = "Show debug console",
+            FontFamily = "OpenSansRegular",
+            FontSize = 13,
+            BackgroundColor = Color.FromArgb("#333333"),
+            TextColor = Colors.White,
+            HorizontalOptions = LayoutOptions.FillAndExpand
+        };
+
+        var clearButton = new Button
+        {
+            Text = "Clear",
+            FontFamily = "OpenSansRegular",
+            FontSize = 12,
+            BackgroundColor = Color.FromArgb("#555555"),
+            TextColor = Colors.White,
+            HeightRequest = 32
+        };
+
+        var logPanel = new VerticalStackLayout
+        {
+            Spacing = 6,
+            IsVisible = false,
+            Children =
+            {
+                new HorizontalStackLayout
+                {
+                    Spacing = 8,
+                    Children = { clearButton }
+                },
+                new Frame
+                {
+                    Padding = 4,
+                    BackgroundColor = Color.FromArgb("#0D0D0D"),
+                    CornerRadius = 4,
+                    Content = _logListView
+                }
+            }
+        };
+
+        toggleButton.Command = new Command(() =>
+        {
+            _logExpanded = !_logExpanded;
+            toggleButton.Text = _logExpanded ? "Hide debug console" : "Show debug console";
+            logPanel.IsVisible = _logExpanded;
+        });
+
+        clearButton.Command = new Command(() =>
+        {
+            _logService.Clear();
+        });
+
+        return new Frame
+        {
+            Padding = 12,
+            BackgroundColor = Application.Current?.Resources.MergedDictionaries.FirstOrDefault()?.ContainsKey("FrameBackground") == true 
+                ? (Color)Application.Current.Resources["FrameBackground"]
+                : (Application.Current?.RequestedTheme == AppTheme.Dark ? Color.FromArgb("#1E1E1E") : Colors.White),
+            Content = new VerticalStackLayout
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new Label { Text = "Debug Console", FontAttributes = FontAttributes.Bold },
+                    toggleButton,
+                    logPanel
+                }
+            }
+        };
     }
 
     private void UpdateCookieStatus()

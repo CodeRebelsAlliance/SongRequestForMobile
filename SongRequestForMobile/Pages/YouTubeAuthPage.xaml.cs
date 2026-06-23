@@ -82,7 +82,7 @@ public sealed class YouTubeAuthPage : ContentPage
         try
         {
             _statusLabel.Text = "Capturing cookies...";
-            var cookies = await _cookieProvider.CaptureCookiesAsync(_currentUrl ?? "https://www.youtube.com/", _ => Task.FromResult(true));
+            var cookies = await _cookieProvider.CaptureCookiesAsync(_authWebView, _currentUrl ?? "https://www.youtube.com/");
 
             if (cookies.Count == 0)
             {

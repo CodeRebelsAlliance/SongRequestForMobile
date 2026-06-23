@@ -13,6 +13,7 @@ public sealed class PlayerPage : ContentPage
     private readonly IPlayerQueueService _queueService;
     private readonly IThumbnailColorService _thumbnailColorService;
     private readonly ILyricsDisplayService _lyricsDisplayService;
+    private readonly IImageCacheService _imageCache;
     private readonly ObservableCollection<PlayerQueueItem> _queueItems = new();
 
     // Main UI elements
@@ -58,11 +59,12 @@ public sealed class PlayerPage : ContentPage
     private double _accentRotation2 = 0;
     private PlayerQueueItem? _previousItem = null;
 
-    public PlayerPage(IPlayerQueueService queueService, IThumbnailColorService thumbnailColorService, ILyricsDisplayService lyricsDisplayService)
+    public PlayerPage(IPlayerQueueService queueService, IThumbnailColorService thumbnailColorService, ILyricsDisplayService lyricsDisplayService, IImageCacheService imageCache)
     {
         _queueService = queueService;
         _thumbnailColorService = thumbnailColorService;
         _lyricsDisplayService = lyricsDisplayService;
+        _imageCache = imageCache;
         _queueService.Updated += OnQueueUpdated;
         _lyricsDisplayService.LyricsUpdated += OnLyricsUpdated;
         _lyricsDisplayService.LoadingStateChanged += OnLyricsLoadingStateChanged;
@@ -753,7 +755,7 @@ public sealed class PlayerPage : ContentPage
         MainThread.BeginInvokeOnMainThread(RefreshUi);
     }
 
-    private void RefreshUi()
+    private async void RefreshUi()
     {
         var current = _queueService.CurrentItem;
         var isPlaying = _queueService.IsPlaying && !_queueService.IsPaused;
@@ -790,15 +792,21 @@ public sealed class PlayerPage : ContentPage
             {
                 AnimateThumbnailTransition(current);
                 _previousItem = current;
+                _imageCache.Preload(current.Thumbnail);
             }
             else
             {
-                // Just update the image
+                // Just update the image from cache
                 if (string.IsNullOrWhiteSpace(current.Thumbnail))
                     _thumbnailImage.Source = null;
                 else
-                    _thumbnailImage.Source = ImageSource.FromUri(new Uri(current.Thumbnail));
+                    _thumbnailImage.Source = _imageCache.GetCached(current.Thumbnail);
             }
+
+            // Preload next song thumbnail
+            var nextItem = _queueService.Queue.SkipWhile(i => i.VideoId != current.VideoId).Skip(1).FirstOrDefault();
+            if (nextItem != null)
+                _imageCache.Preload(nextItem.Thumbnail);
 
             _titleLabel.Text = current.Title;
             _channelLabel.Text = current.Channel;
@@ -958,11 +966,23 @@ public sealed class PlayerPage : ContentPage
 
     private async void AnimateThumbnailTransition(PlayerQueueItem current)
     {
-        // Set next thumbnail
+        // Load next thumbnail (await download so we don't rely on UriImageSource)
         if (string.IsNullOrWhiteSpace(current.Thumbnail))
+        {
             _nextThumbnailImage.Source = null;
+        }
         else
-            _nextThumbnailImage.Source = ImageSource.FromUri(new Uri(current.Thumbnail));
+        {
+            var cached = _imageCache.GetCached(current.Thumbnail);
+            if (cached != null)
+            {
+                _nextThumbnailImage.Source = cached;
+            }
+            else
+            {
+                _nextThumbnailImage.Source = await _imageCache.GetImageAsync(current.Thumbnail);
+            }
+        }
 
         var screenWidth = DeviceDisplay.Current.MainDisplayInfo.Width / DeviceDisplay.Current.MainDisplayInfo.Density;
 

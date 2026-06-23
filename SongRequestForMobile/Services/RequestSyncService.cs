@@ -40,13 +40,15 @@ public sealed class RequestSyncService : IRequestSyncService
     private readonly RequestSyncState _state = new();
     private readonly HashSet<string> _blacklistIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _previouslySyncedIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly IDownloadLogService _logService;
 
-    public RequestSyncService(AppState appState, ServerApiClient serverApiClient, IYouTubeCookieStore cookieStore)
+    public RequestSyncService(AppState appState, ServerApiClient serverApiClient, IYouTubeCookieStore cookieStore, IDownloadLogService logService)
     {
         _appState = appState;
         _serverApiClient = serverApiClient;
         _cookieStore = cookieStore;
-        _youtubeService = new YoutubeService();
+        _logService = logService;
+        _youtubeService = new YoutubeService(logService: _logService);
         Directory.CreateDirectory(_cacheFolder);
         _itemsCachePath = Path.Combine(_cacheFolder, "requests.json");
         LoadCache();
@@ -220,7 +222,7 @@ public sealed class RequestSyncService : IRequestSyncService
     private async Task CacheAndEnrichAsync(IReadOnlyList<ServerRequestRow> rows, CancellationToken cancellationToken)
     {
         var cookies = await _cookieStore.LoadAsync(cancellationToken).ConfigureAwait(false);
-        var youtubeService = new YoutubeService(cookies);
+        var youtubeService = new YoutubeService(cookies, _logService);
 
         foreach (var row in rows)
         {

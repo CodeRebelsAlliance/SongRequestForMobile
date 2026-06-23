@@ -1,6 +1,9 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using SongRequestForMobile.Services;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -8,9 +11,11 @@ using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Newtonsoft.Json;
+using YoutubeDLSharp;
+using YoutubeDLSharp.Options;
 using YoutubeExplode;
 using YoutubeExplode.Common;
+using YoutubeExplode.Exceptions;
 using YoutubeExplode.Videos.ClosedCaptions;
 using YoutubeExplode.Videos.Streams;
 
@@ -20,9 +25,17 @@ namespace SongRequestForMobile
     {
         private readonly YoutubeClient _youtubeClient;
         private readonly HttpClient _httpClient;
+        private readonly IReadOnlyList<Cookie>? _cookies;
+        private readonly IDownloadLogService? _log;
 
-        public YoutubeService(IReadOnlyList<Cookie>? cookies = null)
+        private static readonly string ToolPath = Path.Combine(FileSystem.AppDataDirectory, "yt-dlp-tools");
+        private static readonly SemaphoreSlim InitSemaphore = new(1, 1);
+        private static bool _toolsDownloaded;
+
+        public YoutubeService(IReadOnlyList<Cookie>? cookies = null, IDownloadLogService? logService = null)
         {
+            _log = logService;
+            _cookies = cookies;
             var cookieList = cookies?.ToArray() ?? Array.Empty<Cookie>();
             var handler = new HttpClientHandler
             {
@@ -117,52 +130,231 @@ namespace SongRequestForMobile
 
         public async Task<string> DownloadVideoAsync(string videoUrl, string downloadPath)
         {
+            _log?.Log(LogLevel.Info, "Download", $"Starting download for: {videoUrl}");
+
             await Task.Yield();
 
             string videoId = GetYouTubeVideoId(videoUrl);
             if (string.IsNullOrEmpty(videoId))
             {
+                _log?.Log(LogLevel.Error, "Download", $"Failed to extract video ID from URL: {videoUrl}");
                 throw new Exception("Invalid YouTube URL. Unable to extract video ID.");
             }
-
-            var streamManifest = await Task.Run(async () => await _youtubeClient.Videos.Streams.GetManifestAsync(videoId).ConfigureAwait(false)).ConfigureAwait(false);
-            var audioStreams = streamManifest.GetAudioOnlyStreams();
-            if (audioStreams == null || !audioStreams.Any())
-            {
-                throw new Exception("No suitable video stream found. The input stream collection is empty.");
-            }
-
-            var originalStreams = audioStreams
-                .Where(a => a.AudioLanguage != null &&
-                            a.AudioLanguage.ToString().IndexOf("Original", StringComparison.OrdinalIgnoreCase) >= 0);
-
-            var selectedStream = audioStreams.GetWithHighestBitrate();
-
-            if (originalStreams.Any())
-            {
-                selectedStream = originalStreams
-                    .OrderByDescending(a => a.Bitrate)
-                    .FirstOrDefault();
-            }
-            else
-            {
-                selectedStream = audioStreams.GetWithHighestBitrate();
-            }
-
-            if (selectedStream == null)
-            {
-                throw new Exception("No suitable audio stream found.");
-            }
+            _log?.Log(LogLevel.Debug, "Download", $"Extracted video ID: {videoId}");
 
             string videoFileName = $"{videoId}.mp3";
             string filePath = Path.Combine(downloadPath, videoFileName);
 
-            await Task.Run(async () => await _youtubeClient.Videos.Streams.DownloadAsync(selectedStream, filePath).ConfigureAwait(false)).ConfigureAwait(false);
+            try
+            {
+                _log?.Log(LogLevel.Info, "Download", $"Fetching stream manifest for {videoId}...");
+                var streamManifest = await Task.Run(async () => await _youtubeClient.Videos.Streams.GetManifestAsync(videoId).ConfigureAwait(false)).ConfigureAwait(false);
+                _log?.Log(LogLevel.Info, "Download", $"Stream manifest received");
 
-            return filePath;
+                var audioStreams = streamManifest.GetAudioOnlyStreams();
+                if (audioStreams == null || !audioStreams.Any())
+                {
+                    _log?.Log(LogLevel.Warning, "Download", "No audio-only streams found in manifest");
+                    throw new Exception("No suitable video stream found. The input stream collection is empty.");
+                }
+
+                _log?.Log(LogLevel.Debug, "Download", $"Found {audioStreams.Count()} audio-only streams");
+
+                var originalStreams = audioStreams
+                    .Where(a => a.AudioLanguage != null &&
+                                a.AudioLanguage.ToString().IndexOf("Original", StringComparison.OrdinalIgnoreCase) >= 0);
+
+                var selectedStream = audioStreams.GetWithHighestBitrate();
+
+                if (originalStreams.Any())
+                {
+                    selectedStream = originalStreams
+                        .OrderByDescending(a => a.Bitrate)
+                        .FirstOrDefault();
+                    _log?.Log(LogLevel.Debug, "Download", $"Selected original-language stream with bitrate {selectedStream?.Bitrate}");
+                }
+                else
+                {
+                    selectedStream = audioStreams.GetWithHighestBitrate();
+                    _log?.Log(LogLevel.Debug, "Download", $"Selected highest-bitrate stream: {selectedStream?.Bitrate}");
+                }
+
+                if (selectedStream == null)
+                {
+                    _log?.Log(LogLevel.Error, "Download", "No suitable audio stream selected (null)");
+                    throw new Exception("No suitable audio stream found.");
+                }
+
+                _log?.Log(LogLevel.Info, "Download", $"Downloading audio stream ({selectedStream.Bitrate}) to: {filePath}");
+                await Task.Run(async () => await _youtubeClient.Videos.Streams.DownloadAsync(selectedStream, filePath).ConfigureAwait(false)).ConfigureAwait(false);
+                _log?.Log(LogLevel.Info, "Download", $"Download completed: {filePath}");
+
+                return filePath;
+            }
+            catch (VideoUnavailableException ex)
+            {
+                _log?.Log(LogLevel.Warning, "Download", $"Video unavailable via YoutubeExplode: {ex.Message}. Falling back to yt-dlp...");
+                return await DownloadWithYoutubeDLFallbackAsync(videoUrl, filePath).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _log?.Log(LogLevel.Error, "Download", $"Download failed: {ex.GetType().Name}: {ex.Message}");
+                throw;
+            }
         }
 
+        private async Task<string> DownloadWithYoutubeDLFallbackAsync(string videoUrl, string outputPath)
+        {
+            _log?.Log(LogLevel.Info, "yt-dlp", "Starting yt-dlp fallback download...");
+            await EnsureToolsDownloadedAsync().ConfigureAwait(false);
 
+            var ytdl = new YoutubeDL
+            {
+                YoutubeDLPath = Path.Combine(ToolPath, OperatingSystem.IsWindows() ? "yt-dlp.exe" : "yt-dlp"),
+                FFmpegPath = Path.Combine(ToolPath, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg"),
+                OutputFileTemplate = outputPath
+            };
+            _log?.Log(LogLevel.Debug, "yt-dlp", $"yt-dlp path: {ytdl.YoutubeDLPath}");
+            _log?.Log(LogLevel.Debug, "yt-dlp", $"FFmpeg path: {ytdl.FFmpegPath}");
+
+            var options = new OptionSet();
+            if (_cookies is { Count: > 0 })
+            {
+                WriteCookiesFile(_cookies, out var cookieFile);
+                options.Cookies = cookieFile;
+                _log?.Log(LogLevel.Debug, "yt-dlp", $"Cookies written to: {cookieFile} ({_cookies.Count} cookies)");
+            }
+
+            _log?.Log(LogLevel.Info, "yt-dlp", $"Running yt-dlp for: {videoUrl}");
+            var result = await ytdl.RunAudioDownload(
+                videoUrl,
+                AudioConversionFormat.Mp3,
+                overrideOptions: options
+            ).ConfigureAwait(false);
+
+            if (!result.Success)
+            {
+                var errors = string.Join(Environment.NewLine, result.ErrorOutput);
+                _log?.Log(LogLevel.Error, "yt-dlp", $"yt-dlp failed:{Environment.NewLine}{errors}");
+                throw new Exception($"YoutubeDLSharp fallback failed: {string.Join(", ", result.ErrorOutput)}");
+            }
+
+            _log?.Log(LogLevel.Info, "yt-dlp", $"yt-dlp download completed: {result.Data ?? outputPath}");
+            return result.Data ?? outputPath;
+        }
+
+        private async Task EnsureToolsDownloadedAsync()
+        {
+            if (_toolsDownloaded)
+            {
+                _log?.Log(LogLevel.Debug, "Tools", "Tools already downloaded, skipping");
+                return;
+            }
+
+            _log?.Log(LogLevel.Info, "Tools", "Checking/downloading yt-dlp/ffmpeg tools...");
+            await InitSemaphore.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_toolsDownloaded) return;
+
+                Directory.CreateDirectory(ToolPath);
+                _log?.Log(LogLevel.Info, "Tools", "Downloading yt-dlp...");
+                await Utils.DownloadYtDlp(ToolPath).ConfigureAwait(false);
+                _log?.Log(LogLevel.Info, "Tools", "Downloading FFmpeg...");
+                await Utils.DownloadFFmpeg(ToolPath).ConfigureAwait(false);
+                _log?.Log(LogLevel.Info, "Tools", "Downloading Deno runtime...");
+                await Utils.DownloadDeno(ToolPath).ConfigureAwait(false);
+
+                _toolsDownloaded = true;
+                _log?.Log(LogLevel.Info, "Tools", "All tools downloaded successfully");
+            }
+            catch (Exception ex)
+            {
+                _log?.Log(LogLevel.Error, "Tools", $"Tool download failed: {ex.Message}");
+                throw;
+            }
+            finally
+            {
+                InitSemaphore.Release();
+            }
+        }
+
+        private static void WriteCookiesFile(IReadOnlyList<Cookie> cookies, out string path)
+        {
+            path = Path.Combine(
+                Path.GetTempPath(),
+                $"ytdl_cookies_{Guid.NewGuid():N}.txt");
+
+            using var writer = new StreamWriter(path, false, Encoding.UTF8);
+
+            // Required header for Netscape cookie files
+            writer.WriteLine("# Netscape HTTP Cookie File");
+            writer.WriteLine();
+
+            foreach (var cookie in cookies)
+            {
+                if (cookie == null)
+                    continue;
+
+                if (string.IsNullOrWhiteSpace(cookie.Name) ||
+                    string.IsNullOrWhiteSpace(cookie.Domain))
+                {
+                    continue;
+                }
+
+                // Clean value
+                var value = (cookie.Value ?? string.Empty)
+                    .Replace("\r", string.Empty)
+                    .Replace("\n", string.Empty)
+                    .Replace("\t", " ");
+
+                // Clean path
+                var cookiePath = string.IsNullOrWhiteSpace(cookie.Path)
+                    ? "/"
+                    : cookie.Path
+                        .Replace("\r", string.Empty)
+                        .Replace("\n", string.Empty)
+                        .Replace("\t", string.Empty);
+
+                // Netscape format:
+                // domain | includeSubdomains | path | secure | expires | name | value
+
+                var domain = cookie.Domain.Trim();
+
+                bool includeSubdomains = domain.StartsWith(".");
+
+                if (!includeSubdomains)
+                    domain = "." + domain;
+
+                // HttpOnly cookies are represented by prefixing the domain
+                if (cookie.HttpOnly)
+                    domain = "#HttpOnly_" + domain;
+
+                long expires = 0;
+
+                try
+                {
+                    var dt = cookie.Expires.ToUniversalTime();
+
+                    if (dt > DateTime.UnixEpoch)
+                        expires = ((DateTimeOffset)dt).ToUnixTimeSeconds();
+                }
+                catch
+                {
+                    expires = 0;
+                }
+
+                writer.WriteLine(
+                    string.Join("\t",
+                        domain,
+                        includeSubdomains ? "TRUE" : "FALSE",
+                        cookiePath,
+                        cookie.Secure ? "TRUE" : "FALSE",
+                        expires.ToString(CultureInfo.InvariantCulture),
+                        cookie.Name,
+                        value));
+            }
+        }
 
         public async Task<string> DownloadAndConvertVideoAsync(string videoUrl, string downloadPath)
         {
