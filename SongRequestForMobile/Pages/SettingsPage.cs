@@ -49,11 +49,10 @@ public sealed class SettingsPage : ContentPage
                 var label = new Label
                 {
                     FontSize = 11,
-                    FontFamily = "Consolas",
-                    TextColor = Color.FromArgb("#00FF00"),
                     Padding = new Thickness(4, 1)
                 };
-                label.SetBinding(Label.TextProperty, ".");
+                label.SetBinding(Label.TextProperty, "Text");
+                label.SetBinding(Label.TextColorProperty, "TextColor");
                 return new ViewCell { View = label };
             })
         };

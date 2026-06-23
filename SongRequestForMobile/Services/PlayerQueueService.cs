@@ -442,6 +442,7 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
         LocalFilePath = item.LocalFilePath,
         Message = item.Message,
         Time = item.Time,
-        AccentKey = item.AccentKey
+        AccentKey = item.AccentKey,
+        Duration = item.Duration
     };
 }

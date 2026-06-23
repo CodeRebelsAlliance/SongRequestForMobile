@@ -84,15 +84,41 @@ public class UpdateDownloadService : IUpdateDownloadService
 #if ANDROID
         try
         {
-            // Android: Use intent to install APK
-            var androidPackageManager = Android.App.Application.Context.PackageManager;
-            var uri = Android.Net.Uri.FromFile(new Java.IO.File(filePath));
+            var context = Android.App.Application.Context;
+            var file = new Java.IO.File(filePath);
 
-            var intent = new Android.Content.Intent(Android.Content.Intent.ActionView);
+            // On Android 8+ (API 26+), check and request REQUEST_INSTALL_PACKAGES
+            if (Android.OS.Build.VERSION.SdkInt >= Android.OS.BuildVersionCodes.O)
+            {
+                if (!context.PackageManager!.CanRequestPackageInstalls())
+                {
+                    var settingsIntent = new Android.Content.Intent(
+                        Android.Provider.Settings.ActionManageUnknownAppSources,
+                        Android.Net.Uri.Parse($"package:{context.PackageName}"));
+                    settingsIntent.SetFlags(Android.Content.ActivityFlags.NewTask);
+                    context.StartActivity(settingsIntent);
+
+                    throw new InvalidOperationException("Install permission required. Open Settings → Install unknown apps → allow for this app, then try the update again.");
+                }
+            }
+
+            // On Android 7+ (API 24+), use FileProvider for content:// URI
+            Android.Net.Uri uri;
+            if (Android.OS.Build.VERSION.SdkInt >= Android.OS.BuildVersionCodes.N)
+            {
+                var authority = $"{context.PackageName}.fileprovider";
+                uri = AndroidX.Core.Content.FileProvider.GetUriForFile(context, authority, file);
+            }
+            else
+            {
+                uri = Android.Net.Uri.FromFile(file);
+            }
+
+            var intent = new Android.Content.Intent(Android.Content.Intent.ActionInstallPackage);
             intent.SetDataAndType(uri, "application/vnd.android.package-archive");
-            intent.SetFlags(Android.Content.ActivityFlags.NewTask);
+            intent.SetFlags(Android.Content.ActivityFlags.GrantReadUriPermission | Android.Content.ActivityFlags.NewTask);
 
-            Android.App.Application.Context.StartActivity(intent);
+            context.StartActivity(intent);
         }
         catch (Exception ex)
         {

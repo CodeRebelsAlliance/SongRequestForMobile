@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using SongRequestForMobile.Services;
 
 namespace SongRequestForMobile
 {
@@ -89,10 +90,12 @@ namespace SongRequestForMobile
     public class LyricsService
     {
         private readonly HttpClient _http;
+        private readonly IDownloadLogService? _log;
         private const string BaseUrl = "https://lrclib.net";
 
-        public LyricsService(HttpClient? httpClient = null)
+        public LyricsService(HttpClient? httpClient = null, IDownloadLogService? logService = null)
         {
+            _log = logService;
             if (httpClient != null)
             {
                 _http = httpClient;
@@ -129,23 +132,24 @@ namespace SongRequestForMobile
                 {
                     "artist_name=" + Uri.EscapeDataString(artistName ?? string.Empty),
                     "track_name=" + Uri.EscapeDataString(trackName ?? string.Empty),
+                    "album_name=" + Uri.EscapeDataString(albumName ?? string.Empty),
                     "duration=" + ((int)Math.Round(duration.TotalSeconds)).ToString()
                 };
-                if (!string.IsNullOrWhiteSpace(albumName)) q.Add("album_name=" + Uri.EscapeDataString(albumName));
 
                 var url = BaseUrl.TrimEnd('/') + path + "?" + string.Join('&', q);
+                _log?.Log(LogLevel.Debug, "Lyrics", $"Requesting {path} artist={artistName} track={trackName} duration={duration.TotalSeconds:F0}s");
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
                 result.StatusCode = (int)resp.StatusCode;
+                _log?.Log(LogLevel.Debug, "Lyrics", $"Response status: {(int)resp.StatusCode} {resp.ReasonPhrase}");
 
                 var content = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode)
                 {
-                    // try to parse error details
+                    _log?.Log(LogLevel.Warning, "Lyrics", $"Non-success status {(int)resp.StatusCode} for {artistName} - {trackName}");
                     try
                     {
                         var j = JObject.Parse(content);
-                        // If 404 not found, return not found
                         result.Found = false;
                         return result;
                     }
@@ -156,7 +160,6 @@ namespace SongRequestForMobile
                     }
                 }
 
-                // parse success JSON
                 var obj = JObject.Parse(content);
                 result.Found = true;
                 result.TrackName = (string?)obj["trackName"] ?? (string?)obj["track_name"] ?? trackName;
@@ -167,15 +170,20 @@ namespace SongRequestForMobile
                 result.PlainLyrics = (string?)obj["plainLyrics"] ?? string.Empty;
                 result.SyncedLyrics = (string?)obj["syncedLyrics"] ?? string.Empty;
 
+                var plainLen = result.PlainLyrics?.Length ?? 0;
+                var syncedLen = result.SyncedLyrics?.Length ?? 0;
+                _log?.Log(LogLevel.Info, "Lyrics", $"Found lyrics for \"{result.TrackName}\" by {result.ArtistName} (plain={plainLen}chars synced={syncedLen}chars instrumental={result.Instrumental})");
+
                 return result;
             }
             catch (OperationCanceledException)
             {
+                _log?.Log(LogLevel.Warning, "Lyrics", $"Request cancelled (timeout) for {artistName} - {trackName}");
                 throw;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // on network/parse error return not found result
+                _log?.Log(LogLevel.Error, "Lyrics", $"Request failed: {ex.GetType().Name}: {ex.Message}");
                 result.Found = false;
                 return result;
             }

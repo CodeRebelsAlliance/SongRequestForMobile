@@ -14,6 +14,7 @@ public sealed class PlayerPage : ContentPage
     private readonly IThumbnailColorService _thumbnailColorService;
     private readonly ILyricsDisplayService _lyricsDisplayService;
     private readonly IImageCacheService _imageCache;
+    private readonly IDownloadLogService _log;
     private readonly ObservableCollection<PlayerQueueItem> _queueItems = new();
 
     // Main UI elements
@@ -59,12 +60,13 @@ public sealed class PlayerPage : ContentPage
     private double _accentRotation2 = 0;
     private PlayerQueueItem? _previousItem = null;
 
-    public PlayerPage(IPlayerQueueService queueService, IThumbnailColorService thumbnailColorService, ILyricsDisplayService lyricsDisplayService, IImageCacheService imageCache)
+    public PlayerPage(IPlayerQueueService queueService, IThumbnailColorService thumbnailColorService, ILyricsDisplayService lyricsDisplayService, IImageCacheService imageCache, IDownloadLogService log)
     {
         _queueService = queueService;
         _thumbnailColorService = thumbnailColorService;
         _lyricsDisplayService = lyricsDisplayService;
         _imageCache = imageCache;
+        _log = log;
         _queueService.Updated += OnQueueUpdated;
         _lyricsDisplayService.LyricsUpdated += OnLyricsUpdated;
         _lyricsDisplayService.LoadingStateChanged += OnLyricsLoadingStateChanged;
@@ -565,10 +567,11 @@ public sealed class PlayerPage : ContentPage
         rootGrid.Add(mainContent);
 
         // Queue panel overlay - sits at bottom and slides up
+        // IsVisible=false by default; UWP hits-test elements with a Fill even at Opacity=0
         var queueOverlay = new BoxView
         {
             BackgroundColor = new Color(0, 0, 0, 0.5f),
-            Opacity = 0
+            IsVisible = false
         };
 
         var mainOverlay = new Grid();
@@ -578,7 +581,7 @@ public sealed class PlayerPage : ContentPage
         mainOverlay.Add(_lyricsPanel);
 
         // Initialize queue and lyrics panels off-screen at bottom
-        var screenHeight = DeviceDisplay.Current.MainDisplayInfo.Height / DeviceDisplay.Current.MainDisplayInfo.Density;
+        var screenHeight = SafeScreenHeight();
         _queuePanel.TranslationY = screenHeight;
         _lyricsPanel.TranslationY = screenHeight;
 
@@ -671,11 +674,13 @@ public sealed class PlayerPage : ContentPage
             var queueOverlay = mainOverlay.Children[1] as BoxView;
             if (queueOverlay != null)
             {
+                queueOverlay.IsVisible = true;
+                queueOverlay.Opacity = 0;
                 await queueOverlay.FadeTo(1, 300, Easing.CubicOut);
             }
         }
 
-        var screenHeight = DeviceDisplay.Current.MainDisplayInfo.Height / DeviceDisplay.Current.MainDisplayInfo.Density;
+        var screenHeight = SafeScreenHeight();
         _queuePanel.TranslationY = screenHeight;
         await _queuePanel.TranslateTo(0, 0, 400, Easing.CubicOut);
         await _queueButton.RotateTo(180, 300);
@@ -691,10 +696,11 @@ public sealed class PlayerPage : ContentPage
             if (queueOverlay != null)
             {
                 await queueOverlay.FadeTo(0, 300, Easing.CubicIn);
+                queueOverlay.IsVisible = false;
             }
         }
 
-        var screenHeight = DeviceDisplay.Current.MainDisplayInfo.Height / DeviceDisplay.Current.MainDisplayInfo.Density;
+        var screenHeight = SafeScreenHeight();
         await _queuePanel.TranslateTo(0, screenHeight, 400, Easing.CubicIn);
         await _queueButton.RotateTo(0, 300);
     }
@@ -714,7 +720,7 @@ public sealed class PlayerPage : ContentPage
     private async Task OpenLyricsPanelAsync()
     {
         _lyricsPanelOpen = true;
-        var screenHeight = DeviceDisplay.Current.MainDisplayInfo.Height / DeviceDisplay.Current.MainDisplayInfo.Density;
+        var screenHeight = SafeScreenHeight();
         _lyricsPanel.TranslationY = screenHeight;
 
         // Ensure lyrics display is refreshed when opening the panel
@@ -727,7 +733,7 @@ public sealed class PlayerPage : ContentPage
     private async Task CloseLyricsPanelAsync()
     {
         _lyricsPanelOpen = false;
-        var screenHeight = DeviceDisplay.Current.MainDisplayInfo.Height / DeviceDisplay.Current.MainDisplayInfo.Density;
+        var screenHeight = SafeScreenHeight();
         await _lyricsPanel.TranslateTo(0, screenHeight, 400, Easing.CubicIn);
         await _lyricsButton.RotateTo(0, 300);
     }
@@ -755,7 +761,7 @@ public sealed class PlayerPage : ContentPage
         MainThread.BeginInvokeOnMainThread(RefreshUi);
     }
 
-    private async void RefreshUi()
+    private void RefreshUi()
     {
         var current = _queueService.CurrentItem;
         var isPlaying = _queueService.IsPlaying && !_queueService.IsPaused;
@@ -784,12 +790,10 @@ public sealed class PlayerPage : ContentPage
         }
         else
         {
-            // Fetch lyrics for current song
-            FetchLyricsForCurrentSongAsync();
-
-            // Animate thumbnail transition if song changed
+            // Animate thumbnail transition and fetch lyrics if song changed
             if (_previousItem?.VideoId != current.VideoId)
             {
+                FetchLyricsForCurrentSongAsync();
                 AnimateThumbnailTransition(current);
                 _previousItem = current;
                 _imageCache.Preload(current.Thumbnail);
@@ -827,29 +831,36 @@ public sealed class PlayerPage : ContentPage
             var complementary = GetComplementaryColor(accentColor);
             UpdateAccentCircles(accentColor, complementary);
 
-            // Update lyrics display
+            // Update lyrics display (line-change event handles scrolling/highlights)
             _lyricsDisplayService.UpdatePlaybackPosition(position);
-            RefreshLyricsDisplay();
         }
     }
 
     private async void FetchLyricsForCurrentSongAsync()
     {
         var current = _queueService.CurrentItem;
-        if (current == null) return;
+        if (current == null)
+        {
+            _log.Log(LogLevel.Debug, "Lyrics", "No current item, skipping lyrics fetch");
+            return;
+        }
 
-        // Fetch lyrics for current song
+        _log.Log(LogLevel.Info, "Lyrics", $"-- Fetching lyrics for \"{current.Title}\" by {current.Channel} --");
+
+        // Clear old lyrics immediately so stale content doesn't linger
+        _lyricsDisplayService.ClearCurrent();
+        MainThread.BeginInvokeOnMainThread(RefreshLyricsDisplay);
+
         await _lyricsDisplayService.FetchLyricsAsync(current);
 
-        // Ensure UI is refreshed immediately after fetch
-        RefreshLyricsDisplay();
+        MainThread.BeginInvokeOnMainThread(RefreshLyricsDisplay);
 
-        // Prefetch next song if available
         var queue = _queueService.Queue;
         var currentIndex = queue.IndexOf(current);
         if (currentIndex >= 0 && currentIndex + 1 < queue.Count)
         {
             var nextItem = queue[currentIndex + 1];
+            _log.Log(LogLevel.Debug, "Lyrics", $"Prefetching next: \"{nextItem.Title}\"");
             _ = _lyricsDisplayService.PrefetchNextLyricsAsync(nextItem);
         }
     }
@@ -862,6 +873,10 @@ public sealed class PlayerPage : ContentPage
             lyricsCollection = new ObservableCollection<LyricsDisplayItem>();
             _lyricsCollectionView.ItemsSource = lyricsCollection;
         }
+
+        // Clear stale items immediately when loading or re-loading
+        lyricsCollection.Clear();
+        _lastActiveLineIndex = -1;
 
         // Show loading indicator if still loading
         if (_lyricsDisplayService.IsLoading)
@@ -878,8 +893,6 @@ public sealed class PlayerPage : ContentPage
         var syncedLines = _lyricsDisplayService.CurrentSyncedLines;
         var currentLineIdx = _lyricsDisplayService.CurrentLineIndex;
 
-        lyricsCollection.Clear();
-
         // If no lyrics found at all, show empty state
         if (lyrics == null || !lyrics.Found)
         {
@@ -889,29 +902,29 @@ public sealed class PlayerPage : ContentPage
         // If we have synced lyrics, use those
         if (syncedLines != null && syncedLines.Count > 0)
         {
-            // Populate lyrics with indices
             for (int i = 0; i < syncedLines.Count; i++)
             {
                 var (time, text) = syncedLines[i];
-                lyricsCollection.Add(new LyricsDisplayItem { Index = i, Time = time, Text = text });
+                var displayText = string.IsNullOrEmpty(text) ? " " : text;
+                lyricsCollection.Add(new LyricsDisplayItem
+                {
+                    Index = i,
+                    Time = time,
+                    OriginalText = text ?? "",
+                    Text = displayText,
+                    TextColor = i == currentLineIdx ? Colors.White : Colors.LightGray,
+                    FontSize = i == currentLineIdx ? 24 : 18,
+                    Opacity = i == currentLineIdx ? 1.0 : 0.5,
+                    Scale = i == currentLineIdx ? 1.15 : 0.85
+                });
             }
 
-            // Scroll to current line and highlight it
+            // Scroll to current line
             if (currentLineIdx >= 0 && currentLineIdx < syncedLines.Count)
             {
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
                     _lyricsCollectionView.ScrollTo(currentLineIdx, -1, ScrollToPosition.Center, true);
-
-                    // Update styling for all items
-                    for (int i = 0; i < lyricsCollection.Count; i++)
-                    {
-                        var item = lyricsCollection[i];
-                        if (i == currentLineIdx)
-                        {
-                            // Highlight current line
-                        }
-                    }
                 });
             }
             return;
@@ -924,15 +937,16 @@ public sealed class PlayerPage : ContentPage
             for (int i = 0; i < plainLines.Length; i++)
             {
                 var line = plainLines[i].Trim();
-                if (string.IsNullOrEmpty(line) && i < plainLines.Length - 1)
+                var text = string.IsNullOrEmpty(line) ? " " : line;
+                lyricsCollection.Add(new LyricsDisplayItem
                 {
-                    // Add empty line for visual separation
-                    lyricsCollection.Add(new LyricsDisplayItem { Index = i, Time = TimeSpan.Zero, Text = " " });
-                }
-                else
-                {
-                    lyricsCollection.Add(new LyricsDisplayItem { Index = i, Time = TimeSpan.Zero, Text = line });
-                }
+                    Index = i,
+                    Time = TimeSpan.Zero,
+                    OriginalText = line,
+                    Text = text,
+                    Opacity = 0.5,
+                    Scale = 0.85
+                });
             }
             return;
         }
@@ -956,11 +970,50 @@ public sealed class PlayerPage : ContentPage
         });
     }
 
+    private int _lastActiveLineIndex = -1;
+
     private void OnCurrentLyricsLineChanged(object? sender, EventArgs e)
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            RefreshLyricsDisplay();
+            var lyricsCollection = _lyricsCollectionView.ItemsSource as ObservableCollection<LyricsDisplayItem>;
+            if (lyricsCollection == null || lyricsCollection.Count == 0) return;
+
+            var currentLineIdx = _lyricsDisplayService.CurrentLineIndex;
+            var syncedLines = _lyricsDisplayService.CurrentSyncedLines;
+
+            bool inGap = currentLineIdx < 0;
+
+            for (int i = 0; i < lyricsCollection.Count; i++)
+            {
+                var item = lyricsCollection[i];
+                bool isActive = !inGap && i == currentLineIdx;
+
+                // Gap blanking: if we're in a gap, blank the previously-active line's text
+                if (inGap && _lastActiveLineIndex >= 0 && i == _lastActiveLineIndex)
+                {
+                    item.Text = " ";
+                }
+                else if (!inGap && i < syncedLines.Count)
+                {
+                    // Restore original text when a valid line is active
+                    var original = string.IsNullOrEmpty(item.OriginalText) ? " " : item.OriginalText;
+                    if (item.Text != original)
+                        item.Text = original;
+                }
+
+                item.TextColor = isActive ? Colors.White : Colors.LightGray;
+                item.FontSize = isActive ? 24 : 18;
+                item.Opacity = isActive ? 1.0 : 0.5;
+                item.Scale = isActive ? 1.15 : 0.85;
+            }
+
+            if (!inGap)
+                _lastActiveLineIndex = currentLineIdx;
+
+            // Scroll to active line with animation
+            if (!inGap && currentLineIdx < lyricsCollection.Count)
+                _lyricsCollectionView.ScrollTo(currentLineIdx, -1, ScrollToPosition.Center, true);
         });
     }
 
@@ -984,7 +1037,7 @@ public sealed class PlayerPage : ContentPage
             }
         }
 
-        var screenWidth = DeviceDisplay.Current.MainDisplayInfo.Width / DeviceDisplay.Current.MainDisplayInfo.Density;
+        var screenWidth = SafeScreenWidth();
 
         _nextThumbnailImage.IsVisible = true;
         _nextThumbnailImage.TranslationX = screenWidth;
@@ -1071,29 +1124,25 @@ public sealed class PlayerPage : ContentPage
         {
             var lyricsContainer = new StackLayout
             {
-                Padding = new Thickness(16, 12),
-                Spacing = 0
+                Padding = new Thickness(32, 12),
+                Spacing = 0,
+                HorizontalOptions = LayoutOptions.Fill
             };
 
             var lyricsLabel = new Label
             {
                 LineBreakMode = LineBreakMode.WordWrap,
-                FontSize = 16,
+                FontSize = 18,
                 TextColor = Colors.LightGray,
-                FontAttributes = FontAttributes.Bold
+                FontAttributes = FontAttributes.Bold,
+                HorizontalTextAlignment = TextAlignment.Center,
+                HorizontalOptions = LayoutOptions.Fill
             };
             lyricsLabel.SetBinding(Label.TextProperty, "Text");
-
-            // Binding context for styling
-            lyricsLabel.BindingContextChanged += (s, e) =>
-            {
-                if (lyricsLabel.BindingContext is LyricsDisplayItem lyricsItem)
-                {
-                    var isCurrentLine = lyricsItem.Index == _lyricsDisplayService.CurrentLineIndex;
-                    lyricsLabel.TextColor = isCurrentLine ? Colors.White : Colors.LightGray;
-                    lyricsLabel.FontSize = isCurrentLine ? 20 : 16;
-                }
-            };
+            lyricsLabel.SetBinding(Label.TextColorProperty, "TextColor");
+            lyricsLabel.SetBinding(Label.FontSizeProperty, "FontSize");
+            lyricsLabel.SetBinding(Label.OpacityProperty, "Opacity");
+            lyricsLabel.SetBinding(Label.ScaleProperty, "Scale");
 
             lyricsContainer.Children.Add(lyricsLabel);
             return lyricsContainer;
@@ -1264,14 +1313,80 @@ public sealed class PlayerPage : ContentPage
 
         return $"{minutes}:{seconds:D2}";
     }
+
+    /// <summary>Gets display density safely (falls back to 1 on platforms that throw).</summary>
+    private static double SafeDisplayDensity()
+    {
+        try { return DeviceDisplay.Current.MainDisplayInfo.Density; }
+        catch { return 1; }
+    }
+
+    /// <summary>Gets screen height using safe density fallback.</summary>
+    private static double SafeScreenHeight()
+    {
+        try
+        {
+            var info = DeviceDisplay.Current.MainDisplayInfo;
+            return info.Height / info.Density;
+        }
+        catch { return 600; }
+    }
+
+    /// <summary>Gets screen width using safe density fallback.</summary>
+    private static double SafeScreenWidth()
+    {
+        try
+        {
+            var info = DeviceDisplay.Current.MainDisplayInfo;
+            return info.Width / info.Density;
+        }
+        catch { return 800; }
+    }
 }
 
 /// <summary>
 /// Represents a single line of lyrics for display in the collection view.
 /// </summary>
-internal class LyricsDisplayItem
+internal class LyricsDisplayItem : System.ComponentModel.INotifyPropertyChanged
 {
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
     public int Index { get; set; }
     public TimeSpan Time { get; set; }
-    public string Text { get; set; } = string.Empty;
+    public string OriginalText { get; set; } = string.Empty;
+
+    private string _text = string.Empty;
+    public string Text
+    {
+        get => _text;
+        set { _text = value; PropertyChanged?.Invoke(this, new(nameof(Text))); }
+    }
+
+    private Color _textColor = Colors.LightGray;
+    public Color TextColor
+    {
+        get => _textColor;
+        set { _textColor = value; PropertyChanged?.Invoke(this, new(nameof(TextColor))); }
+    }
+
+    private double _fontSize = 18;
+    public double FontSize
+    {
+        get => _fontSize;
+        set { _fontSize = value; PropertyChanged?.Invoke(this, new(nameof(FontSize))); }
+    }
+
+    private double _opacity = 0.5;
+    public double Opacity
+    {
+        get => _opacity;
+        set { _opacity = value; PropertyChanged?.Invoke(this, new(nameof(Opacity))); }
+    }
+
+    private double _scale = 0.85;
+    public double Scale
+    {
+        get => _scale;
+        set { _scale = value; PropertyChanged?.Invoke(this, new(nameof(Scale))); }
+    }
 }

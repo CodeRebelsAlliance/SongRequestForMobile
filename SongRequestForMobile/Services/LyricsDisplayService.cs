@@ -10,6 +10,7 @@ namespace SongRequestForMobile.Services;
 public class LyricsDisplayService : ILyricsDisplayService
 {
     private readonly LyricsService _lyricsService;
+    private readonly IDownloadLogService? _log;
     private readonly ConcurrentDictionary<string, LyricsResult> _cache = new();
     private LyricsResult? _currentLyrics;
     private List<(TimeSpan Time, string Text)> _currentSyncedLines = new();
@@ -69,39 +70,51 @@ public class LyricsDisplayService : ILyricsDisplayService
     public event EventHandler? LoadingStateChanged;
     public event EventHandler? CurrentLineChanged;
 
-    public LyricsDisplayService(LyricsService lyricsService)
+    public LyricsDisplayService(LyricsService lyricsService, IDownloadLogService? logService = null)
     {
         _lyricsService = lyricsService ?? throw new ArgumentNullException(nameof(lyricsService));
+        _log = logService;
     }
 
     public async Task FetchLyricsAsync(PlayerQueueItem item, CancellationToken ct = default)
     {
-        if (item == null) return;
+        if (item == null)
+        {
+            _log?.Log(LogLevel.Warning, "Lyrics", "FetchLyricsAsync called with null item");
+            return;
+        }
 
-        // Check cache first
+        _log?.Log(LogLevel.Info, "Lyrics", $"Fetching lyrics for: \"{item.Title}\" by {item.Channel}");
+
+        if (item.Duration.TotalSeconds <= 0)
+        {
+            _log?.Log(LogLevel.Warning, "Lyrics", $"Skipping fetch: duration is {item.Duration.TotalSeconds:F0}s for \"{item.Title}\"");
+            return;
+        }
+
         var cacheKey = GetCacheKey(item);
         if (_cache.TryGetValue(cacheKey, out var cachedResult))
         {
+            _log?.Log(LogLevel.Debug, "Lyrics", $"Cache hit for \"{item.Title}\" by {item.Channel}");
             CurrentLyrics = cachedResult;
             CurrentSyncedLines = cachedResult.ParseSyncedLines();
             CurrentLineIndex = -1;
             return;
         }
 
-        // Not in cache, fetch from API
+        _log?.Log(LogLevel.Debug, "Lyrics", $"Cache miss, fetching from API...");
         IsLoading = true;
         try
         {
-            // Create a Song object from the PlayerQueueItem to use the normalizer
             var song = new Song(item.Title, item.Channel, null, item.Duration, string.Empty);
-
-            // Use LyricsQueryNormalizer to properly clean the artist and title
             var normalizedQuery = LyricsQueryNormalizer.Build(song);
+            _log?.Log(LogLevel.Debug, "Lyrics", $"Normalized query: artist=\"{normalizedQuery.Artist}\" title=\"{normalizedQuery.Title}\"");
 
+            _log?.Log(LogLevel.Info, "Lyrics", $"Calling lrclib.net for \"{normalizedQuery.Title}\" by {normalizedQuery.Artist}...");
             var result = await _lyricsService.GetLyricsAsync(
                 normalizedQuery.Artist,
                 normalizedQuery.Title,
-                item.Duration,  // Use actual song duration instead of zero
+                item.Duration,
                 null,
                 ct
             ).ConfigureAwait(false);
@@ -110,6 +123,15 @@ public class LyricsDisplayService : ILyricsDisplayService
             CurrentLyrics = result;
             CurrentSyncedLines = result.Found ? result.ParseSyncedLines() : new();
             CurrentLineIndex = -1;
+
+            if (!result.Found)
+                _log?.Log(LogLevel.Warning, "Lyrics", $"No lyrics found on lrclib.net for \"{normalizedQuery.Title}\"");
+            else if (result.Instrumental)
+                _log?.Log(LogLevel.Info, "Lyrics", $"Track is instrumental, no lyrics needed");
+        }
+        catch (Exception ex)
+        {
+            _log?.Log(LogLevel.Error, "Lyrics", $"Fetch failed: {ex.GetType().Name}: {ex.Message}");
         }
         finally
         {
@@ -119,23 +141,35 @@ public class LyricsDisplayService : ILyricsDisplayService
 
     public async Task PrefetchNextLyricsAsync(PlayerQueueItem? nextItem, CancellationToken ct = default)
     {
-        if (nextItem == null) return;
+        if (nextItem == null)
+        {
+            _log?.Log(LogLevel.Debug, "Lyrics", "Prefetch skipped: no next item");
+            return;
+        }
+
+        if (nextItem.Duration.TotalSeconds <= 0)
+        {
+            _log?.Log(LogLevel.Debug, "Lyrics", $"Prefetch skipped: duration is 0s for \"{nextItem.Title}\"");
+            return;
+        }
 
         var cacheKey = GetCacheKey(nextItem);
-        if (_cache.ContainsKey(cacheKey)) return; // Already cached
+        if (_cache.ContainsKey(cacheKey))
+        {
+            _log?.Log(LogLevel.Debug, "Lyrics", $"Prefetch skipped: \"{nextItem.Title}\" already cached");
+            return;
+        }
 
+        _log?.Log(LogLevel.Debug, "Lyrics", $"Prefetching lyrics for next: \"{nextItem.Title}\" by {nextItem.Channel}");
         try
         {
-            // Create a Song object from the PlayerQueueItem to use the normalizer
             var song = new Song(nextItem.Title, nextItem.Channel, null, nextItem.Duration, string.Empty);
-
-            // Use LyricsQueryNormalizer to properly clean the artist and title
             var normalizedQuery = LyricsQueryNormalizer.Build(song);
 
             var result = await _lyricsService.GetCachedLyricsAsync(
                 normalizedQuery.Artist,
                 normalizedQuery.Title,
-                nextItem.Duration,  // Use actual song duration instead of zero
+                nextItem.Duration,
                 null,
                 ct
             ).ConfigureAwait(false);
@@ -143,11 +177,16 @@ public class LyricsDisplayService : ILyricsDisplayService
             if (result.Found)
             {
                 _cache.TryAdd(cacheKey, result);
+                _log?.Log(LogLevel.Info, "Lyrics", $"Prefetched lyrics for \"{nextItem.Title}\"");
+            }
+            else
+            {
+                _log?.Log(LogLevel.Debug, "Lyrics", $"Prefetch found no lyrics for \"{nextItem.Title}\"");
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Silently fail on prefetch
+            _log?.Log(LogLevel.Debug, "Lyrics", $"Prefetch failed for \"{nextItem.Title}\": {ex.Message}");
         }
     }
     public void UpdatePlaybackPosition(TimeSpan currentPosition)
@@ -173,6 +212,14 @@ public class LyricsDisplayService : ILyricsDisplayService
         }
 
         CurrentLineIndex = newIndex;
+    }
+
+    public void ClearCurrent()
+    {
+        CurrentLyrics = null;
+        CurrentSyncedLines = new();
+        CurrentLineIndex = -1;
+        IsLoading = true;
     }
 
     public void ClearCache()

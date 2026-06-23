@@ -12,7 +12,7 @@ public enum LogLevel
 
 public interface IDownloadLogService
 {
-    ObservableCollection<string> Entries { get; }
+    ObservableCollection<LogEntry> Entries { get; }
     void Log(LogLevel level, string category, string message);
     void Clear();
 }

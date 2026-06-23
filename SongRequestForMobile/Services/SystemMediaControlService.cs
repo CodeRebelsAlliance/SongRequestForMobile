@@ -271,42 +271,63 @@ public sealed class SystemMediaControlService : ISystemMediaControlService, IDis
 
     public void UpdateMetadata(string title, string artist, string? thumbnailUrl, TimeSpan duration)
     {
-        if (_displayUpdater?.MusicProperties == null) return;
-
-        _displayUpdater.MusicProperties.Title = title;
-        _displayUpdater.MusicProperties.Artist = artist;
-        _displayUpdater.MusicProperties.AlbumArtist = artist;
-        _displayUpdater.Thumbnail = null;
-
-        if (!string.IsNullOrEmpty(thumbnailUrl))
+        try
         {
-            _ = LoadThumbnailAsync(thumbnailUrl);
-        }
+            if (_displayUpdater?.MusicProperties == null) return;
 
-        _displayUpdater.Update();
+            _displayUpdater.Type = Windows.Media.MediaPlaybackType.Music;
+            _displayUpdater.MusicProperties.Title = title;
+            _displayUpdater.MusicProperties.Artist = artist;
+
+            if (!string.IsNullOrEmpty(thumbnailUrl))
+            {
+                _ = LoadThumbnailAsync(thumbnailUrl);
+            }
+            else
+            {
+                _displayUpdater.Thumbnail = null;
+            }
+
+            _displayUpdater.Update();
+        }
+        catch
+        {
+        }
     }
 
     public void UpdatePlaybackState(bool isPlaying, TimeSpan position, TimeSpan duration)
     {
-        if (_smtc == null) return;
+        try
+        {
+            if (_smtc == null) return;
 
-        _smtc.PlaybackStatus = isPlaying
-            ? Windows.Media.MediaPlaybackStatus.Playing
-            : Windows.Media.MediaPlaybackStatus.Paused;
+            _smtc.PlaybackStatus = isPlaying
+                ? Windows.Media.MediaPlaybackStatus.Playing
+                : Windows.Media.MediaPlaybackStatus.Paused;
+        }
+        catch
+        {
+        }
     }
 
     public void ClearAll()
     {
-        if (_displayUpdater != null)
+        try
         {
-            _displayUpdater.MusicProperties.Title = "";
-            _displayUpdater.MusicProperties.Artist = "";
-            _displayUpdater.ClearAll();
-        }
+            if (_displayUpdater != null)
+            {
+                _displayUpdater.MusicProperties.Title = "";
+                _displayUpdater.MusicProperties.Artist = "";
+                _displayUpdater.ClearAll();
+            }
 
-        if (_smtc != null)
+            if (_smtc != null)
+            {
+                _smtc.PlaybackStatus = Windows.Media.MediaPlaybackStatus.Stopped;
+            }
+        }
+        catch
         {
-            _smtc.PlaybackStatus = Windows.Media.MediaPlaybackStatus.Stopped;
         }
     }
 
@@ -324,7 +345,7 @@ public sealed class SystemMediaControlService : ISystemMediaControlService, IDis
 
             await Windows.Storage.FileIO.WriteBytesAsync(tempFile, bytes);
 
-            _displayUpdater.Thumbnail = 
+            _displayUpdater.Thumbnail =
                 Windows.Storage.Streams.RandomAccessStreamReference.CreateFromFile(tempFile);
             _displayUpdater.Update();
         }

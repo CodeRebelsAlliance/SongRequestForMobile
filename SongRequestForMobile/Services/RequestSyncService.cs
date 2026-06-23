@@ -277,6 +277,19 @@ public sealed class RequestSyncService : IRequestSyncService
 
             item.LocalFilePath = localFilePath;
             item.IsDownloading = false;
+
+            // Read actual duration from the MP3 file (more reliable than YouTube metadata)
+            if (File.Exists(localFilePath))
+            {
+                try
+                {
+                    using var reader = new NAudio.Wave.AudioFileReader(localFilePath);
+                    item.Duration = reader.TotalTime;
+                }
+                catch
+                {
+                }
+            }
         }
     }
 

@@ -58,6 +58,11 @@ public interface ILyricsDisplayService
     void UpdatePlaybackPosition(TimeSpan currentPosition);
 
     /// <summary>
+    /// Clear current lyrics immediately (for song changes).
+    /// </summary>
+    void ClearCurrent();
+
+    /// <summary>
     /// Clear all cached lyrics.
     /// </summary>
     void ClearCache();
