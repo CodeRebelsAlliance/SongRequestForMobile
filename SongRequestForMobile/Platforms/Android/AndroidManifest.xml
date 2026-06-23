@@ -1,14 +1,12 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.coderebelsalliance.songrequest" android:versionCode="9" android:versionName="0.9">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.coderebelsalliance.songrequest" android:versionCode="10" android:versionName="0.10">
 	<application android:allowBackup="true" android:icon="@mipmap/appicon" android:supportsRtl="true" android:label="SongRequest for Mobile">
 		<service android:name="SongRequestForMobile.Platforms.Android.ForegroundMediaService" android:foregroundServiceType="mediaPlayback" android:exported="false" />
-		<provider android:name="androidx.core.content.FileProvider" android:authorities="com.coderebelsalliance.songrequest.fileprovider" android:exported="false" android:grantUriPermissions="true">
-			<meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
-		</provider>
 	</application>
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 	<uses-permission android:name="android.permission.INTERNET" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<uses-permission android:name="android.permission.INSTALL_PACKAGES" />
 </manifest>

@@ -971,50 +971,141 @@ public sealed class PlayerPage : ContentPage
     }
 
     private int _lastActiveLineIndex = -1;
+    private CancellationTokenSource? _lyricsAnimationCts;
 
     private void OnCurrentLyricsLineChanged(object? sender, EventArgs e)
     {
-        MainThread.BeginInvokeOnMainThread(() =>
+        _lyricsAnimationCts?.Cancel();
+        _lyricsAnimationCts = new CancellationTokenSource();
+        var ct = _lyricsAnimationCts.Token;
+
+        _ = AnimateLyricsTransitionAsync(ct);
+    }
+
+    private async Task AnimateLyricsTransitionAsync(CancellationToken ct)
+    {
+        try
         {
-            var lyricsCollection = _lyricsCollectionView.ItemsSource as ObservableCollection<LyricsDisplayItem>;
-            if (lyricsCollection == null || lyricsCollection.Count == 0) return;
-
-            var currentLineIdx = _lyricsDisplayService.CurrentLineIndex;
-            var syncedLines = _lyricsDisplayService.CurrentSyncedLines;
-
-            bool inGap = currentLineIdx < 0;
-
-            for (int i = 0; i < lyricsCollection.Count; i++)
+            // ── Phase 1: text changes + capture state (must be on main thread) ──
+            var state = await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                var item = lyricsCollection[i];
-                bool isActive = !inGap && i == currentLineIdx;
+                if (ct.IsCancellationRequested)
+                    return (null, 0, false, 0,
+                            Array.Empty<double>(), Array.Empty<double>(), Array.Empty<double>(),
+                            Array.Empty<double>(), Array.Empty<double>(), Array.Empty<double>(),
+                            Array.Empty<Color>());
 
-                // Gap blanking: if we're in a gap, blank the previously-active line's text
-                if (inGap && _lastActiveLineIndex >= 0 && i == _lastActiveLineIndex)
+                var collection = _lyricsCollectionView.ItemsSource as ObservableCollection<LyricsDisplayItem>;
+                if (collection == null || collection.Count == 0)
+                    return (null, 0, false, 0,
+                            Array.Empty<double>(), Array.Empty<double>(), Array.Empty<double>(),
+                            Array.Empty<double>(), Array.Empty<double>(), Array.Empty<double>(),
+                            Array.Empty<Color>());
+
+                var curIdx = _lyricsDisplayService.CurrentLineIndex;
+                var syncLines = _lyricsDisplayService.CurrentSyncedLines;
+                var gap = curIdx < 0;
+
+                for (int i = 0; i < collection.Count; i++)
                 {
-                    item.Text = " ";
-                }
-                else if (!inGap && i < syncedLines.Count)
-                {
-                    // Restore original text when a valid line is active
-                    var original = string.IsNullOrEmpty(item.OriginalText) ? " " : item.OriginalText;
-                    if (item.Text != original)
-                        item.Text = original;
+                    var item = collection[i];
+                    if (gap && _lastActiveLineIndex >= 0 && i == _lastActiveLineIndex)
+                        item.Text = " ";
+                    else if (!gap && i < syncLines.Count)
+                    {
+                        var original = string.IsNullOrEmpty(item.OriginalText) ? " " : item.OriginalText;
+                        if (item.Text != original)
+                            item.Text = original;
+                    }
                 }
 
-                item.TextColor = isActive ? Colors.White : Colors.LightGray;
-                item.FontSize = isActive ? 24 : 18;
-                item.Opacity = isActive ? 1.0 : 0.5;
-                item.Scale = isActive ? 1.15 : 0.85;
+                if (!gap)
+                    _lastActiveLineIndex = curIdx;
+
+                var cnt = collection.Count;
+                var sOp = new double[cnt];
+                var sSc = new double[cnt];
+                var sFs = new double[cnt];
+                var tOp = new double[cnt];
+                var tSc = new double[cnt];
+                var tFs = new double[cnt];
+                var tClr = new Color[cnt];
+
+                for (int i = 0; i < cnt; i++)
+                {
+                    bool active = !gap && i == curIdx;
+                    sOp[i] = collection[i].Opacity;
+                    sSc[i] = collection[i].Scale;
+                    sFs[i] = collection[i].FontSize;
+                    tOp[i] = active ? 1.0 : 0.5;
+                    tSc[i] = active ? 1.0 : 0.85;
+                    tFs[i] = active ? 24.0 : 18.0;
+                    tClr[i] = active ? Colors.White : Colors.LightGray;
+                }
+
+                return (collection, curIdx, gap, cnt,
+                        sOp, sSc, sFs,
+                        tOp, tSc, tFs, tClr);
+            });
+
+            var (lyricsCollection, currentLineIdx, inGap, count,
+                 startOp, startSc, startFs,
+                 targetOp, targetSc, targetFs, targetColor) = state;
+
+            if (lyricsCollection == null || ct.IsCancellationRequested) return;
+
+            // ── Phase 2: eased animation loop ──
+            const int steps = 20;
+            for (int step = 1; step <= steps; step++)
+            {
+                if (ct.IsCancellationRequested) return;
+
+                var progress = step / (double)steps;
+                var eased = Easing.CubicInOut.Ease(progress);
+
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        var item = lyricsCollection[i];
+                        var newOpacity = startOp[i] + (targetOp[i] - startOp[i]) * eased;
+                        var newScale = Math.Min(1.0, startSc[i] + (targetSc[i] - startSc[i]) * eased);
+                        var newFontSize = startFs[i] + (targetFs[i] - startFs[i]) * eased;
+
+                        if (Math.Abs(newOpacity - item.Opacity) > 0.005)
+                            item.Opacity = newOpacity;
+                        if (Math.Abs(newScale - item.Scale) > 0.005)
+                            item.Scale = newScale;
+                        if (Math.Abs(newFontSize - item.FontSize) > 0.5)
+                            item.FontSize = newFontSize;
+                    }
+                });
+
+                await Task.Delay(16, ct);
             }
 
-            if (!inGap)
-                _lastActiveLineIndex = currentLineIdx;
+            // ── Phase 3: final snap + scroll ──
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                if (ct.IsCancellationRequested) return;
 
-            // Scroll to active line with animation
-            if (!inGap && currentLineIdx < lyricsCollection.Count)
-                _lyricsCollectionView.ScrollTo(currentLineIdx, -1, ScrollToPosition.Center, true);
-        });
+                for (int i = 0; i < count; i++)
+                {
+                    var item = lyricsCollection[i];
+                    item.Opacity = targetOp[i];
+                    item.Scale = Math.Min(1.0, targetSc[i]);
+                    item.FontSize = targetFs[i];
+                    item.TextColor = targetColor[i];
+                }
+
+                if (!inGap && currentLineIdx < count)
+                    _lyricsCollectionView.ScrollTo(currentLineIdx, -1, ScrollToPosition.Center, true);
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when a new animation starts
+        }
     }
 
     private async void AnimateThumbnailTransition(PlayerQueueItem current)
