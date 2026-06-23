@@ -1,6 +1,11 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.coderebelsalliance.songrequest" android:versionCode="6" android:versionName="0.6">
-	<application android:allowBackup="true" android:icon="@mipmap/appicon" android:supportsRtl="true" android:label="SongRequest for Mobile"></application>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.coderebelsalliance.songrequest" android:versionCode="7" android:versionName="0.7">
+	<application android:allowBackup="true" android:icon="@mipmap/appicon" android:supportsRtl="true" android:label="SongRequest for Mobile">
+		<service android:name="SongRequestForMobile.Platforms.Android.ForegroundMediaService" android:foregroundServiceType="mediaPlayback" android:exported="false" />
+	</application>
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 	<uses-permission android:name="android.permission.INTERNET" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

@@ -12,9 +12,11 @@ public class UpdateDownloadService : IUpdateDownloadService
 {
     private readonly HttpClient _httpClient;
 
-    public UpdateDownloadService(HttpClient httpClient)
+    public UpdateDownloadService()
     {
-        _httpClient = httpClient;
+        _httpClient = new HttpClient(new HttpClientHandler { AllowAutoRedirect = true });
+        var version = Microsoft.Maui.ApplicationModel.AppInfo.VersionString;
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"SongRequest For Mobile v{version}");
     }
 
     public async Task<bool> DownloadAndInstallAsync(string downloadUrl, IProgress<UpdateProgress>? progress = null, CancellationToken cancellationToken = default)

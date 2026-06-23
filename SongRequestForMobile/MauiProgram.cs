@@ -37,6 +37,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<ServerApiClient>();
         builder.Services.AddSingleton<IRequestSyncService, RequestSyncService>();
         builder.Services.AddSingleton<IThumbnailColorService, ThumbnailColorService>();
+        builder.Services.AddSingleton<ISystemMediaControlService, SystemMediaControlService>();
         builder.Services.AddSingleton<IPlayerQueueService, PlayerQueueService>();
         builder.Services.AddSingleton<IQueueItemFactory, QueueItemFactory>();
         builder.Services.AddSingleton<ISettingsExportService, SettingsExportService>();

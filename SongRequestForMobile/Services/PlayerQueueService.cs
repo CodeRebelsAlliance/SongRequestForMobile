@@ -38,16 +38,25 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
 {
     private readonly IAudioManager _audioManager;
     private readonly IThumbnailColorService _thumbnailColorService;
+    private readonly ISystemMediaControlService _systemMediaControl;
     private IAudioPlayer? _audioPlayer;
     private Stream? _audioStream;
     private readonly List<PlayerQueueItem> _history = new();
     private bool _manualPause;
 
-    public PlayerQueueService(IThumbnailColorService thumbnailColorService)
+    public PlayerQueueService(IThumbnailColorService thumbnailColorService, ISystemMediaControlService systemMediaControl)
     {
         _thumbnailColorService = thumbnailColorService;
+        _systemMediaControl = systemMediaControl;
         _audioManager = AudioManager.Current;
         Queue = new ObservableCollection<PlayerQueueItem>();
+
+        _systemMediaControl.PlayPressed += OnSystemPlay;
+        _systemMediaControl.PausePressed += OnSystemPause;
+        _systemMediaControl.TogglePlayPausePressed += OnSystemTogglePlayPause;
+        _systemMediaControl.SkipNextPressed += OnSystemSkipNext;
+        _systemMediaControl.SkipPreviousPressed += OnSystemSkipPrevious;
+        _systemMediaControl.SeekTo += OnSystemSeekTo;
     }
 
     public ObservableCollection<PlayerQueueItem> Queue { get; }
@@ -111,6 +120,7 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
             StopInternal();
             CurrentItem = null;
             _manualPause = false;
+            _systemMediaControl.ClearAll();
             Updated?.Invoke(this, EventArgs.Empty);
             return;
         }
@@ -124,6 +134,11 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
     {
         if (_history.Count == 0)
         {
+            // Still allow seeking to start of current track if history is empty
+            if (CurrentItem != null && CurrentPosition > TimeSpan.FromSeconds(3))
+            {
+                await SeekAsync(TimeSpan.Zero).ConfigureAwait(false);
+            }
             return;
         }
 
@@ -163,6 +178,7 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
         {
         }
 
+        UpdateSystemMediaInfo();
         Updated?.Invoke(this, EventArgs.Empty);
         return Task.CompletedTask;
     }
@@ -183,6 +199,7 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
         {
         }
 
+        UpdateSystemMediaInfo();
         Updated?.Invoke(this, EventArgs.Empty);
         return Task.CompletedTask;
     }
@@ -191,6 +208,7 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
     {
         StopInternal();
         _manualPause = false;
+        _systemMediaControl.ClearAll();
         Updated?.Invoke(this, EventArgs.Empty);
     }
 
@@ -244,6 +262,7 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
         {
         }
 
+        UpdateSystemMediaInfo();
         Updated?.Invoke(this, EventArgs.Empty);
         return Task.CompletedTask;
     }
@@ -267,6 +286,12 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
             {
                 await SkipNextAsync().ConfigureAwait(false);
                 return;
+            }
+
+            // Periodically update system media playback position
+            if (CurrentItem != null)
+            {
+                _systemMediaControl.UpdatePlaybackState(true, CurrentPosition, Duration);
             }
 
             Updated?.Invoke(this, EventArgs.Empty);
@@ -303,9 +328,52 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
 
     public void Dispose()
     {
+        _systemMediaControl.PlayPressed -= OnSystemPlay;
+        _systemMediaControl.PausePressed -= OnSystemPause;
+        _systemMediaControl.TogglePlayPausePressed -= OnSystemTogglePlayPause;
+        _systemMediaControl.SkipNextPressed -= OnSystemSkipNext;
+        _systemMediaControl.SkipPreviousPressed -= OnSystemSkipPrevious;
+        _systemMediaControl.SeekTo -= OnSystemSeekTo;
+        _systemMediaControl.ClearAll();
         StopInternal();
         _audioStream?.Dispose();
         _audioStream = null;
+    }
+
+    private void OnSystemPlay(object? sender, EventArgs e) =>
+        _ = ResumeAsync();
+
+    private void OnSystemTogglePlayPause(object? sender, EventArgs e) =>
+        _ = TogglePlayPauseAsync();
+
+    private void OnSystemPause(object? sender, EventArgs e) =>
+        _ = PauseAsync();
+
+    private void OnSystemSkipNext(object? sender, EventArgs e) =>
+        _ = SkipNextAsync();
+
+    private void OnSystemSkipPrevious(object? sender, EventArgs e) =>
+        _ = PlayPreviousAsync();
+
+    private void OnSystemSeekTo(object? sender, double position) =>
+        _ = SeekAsync(TimeSpan.FromSeconds(position));
+
+    private void UpdateSystemMediaInfo()
+    {
+        var item = CurrentItem;
+        if (item != null)
+        {
+            _systemMediaControl.UpdateMetadata(
+                item.Title,
+                item.Channel,
+                item.Thumbnail,
+                Duration);
+            _systemMediaControl.UpdatePlaybackState(IsPlaying && !IsPaused, CurrentPosition, Duration);
+        }
+        else
+        {
+            _systemMediaControl.ClearAll();
+        }
     }
 
     private async Task PlayItemAsync(PlayerQueueItem item, bool addCurrentToHistory = true)
@@ -327,6 +395,7 @@ public sealed class PlayerQueueService : IPlayerQueueService, IDisposable
         _audioStream = File.OpenRead(item.LocalFilePath);
         _audioPlayer = _audioManager.CreatePlayer(_audioStream);
         _audioPlayer.Play();
+        UpdateSystemMediaInfo();
         Updated?.Invoke(this, EventArgs.Empty);
         await Task.CompletedTask;
     }
